@@ -1,0 +1,35 @@
+BUILD TO WINDOWS ON MAC — programas e jogos de Windows no Mac
+Gratuito. Sem máquina virtual: o Wine traduz o programa de Windows direto para o macOS,
+e o D3DMetal da Apple traduz os gráficos (DirectX → Metal).
+
+PRECISA DE
+- Mac com chip Apple (M1, M2, M3, M4 ou mais novo)
+- macOS 14 Sonoma ou mais novo
+- Rosetta 2 (o app avisa se faltar)
+- ~1 GB livre para a tradução + o espaço dos seus programas
+
+COMO INSTALAR
+1. Arraste "Build to Windows on Mac" para a pasta "Aplicativos" (ao lado).
+2. Abra o app pela pasta Aplicativos.
+   Na primeira vez o macOS pode dizer que não conseguiu verificar o desenvolvedor
+   (o app ainda não é assinado pela Apple). Para liberar:
+   Ajustes do Sistema → Privacidade e Segurança → role até o fim → "Abrir Mesmo Assim".
+3. Clique em "Instalar". Tudo que a tradução precisa já vem dentro do app (não precisa de internet).
+   Dá para escolher outra pasta antes, por exemplo um SSD externo.
+
+DEPOIS
+- Para instalar ou rodar um programa de Windows: arraste o .exe ou .msi para a janela do app,
+  ou clique com o botão direito no arquivo → Abrir com → Build to Windows on Mac.
+- Os programas instalados aparecem na janela e no menu do app (ícone na barra de cima).
+- Jogos: clique em "Instalar Steam" (opcional) e entre na sua conta.
+- O app confere a tela (Retina, monitor externo) antes de abrir cada programa e ajusta a escala.
+- Com internet, o app avisa quando houver versão nova da tradução; dá para voltar se algo quebrar.
+
+O QUE NÃO FUNCIONA BEM
+- Jogos com anti-cheat de kernel (Valorant, Fortnite e outros).
+- Programas com proteção de licença pesada ou drivers próprios (muitos CADs/BIMs profissionais,
+  como AutoCAD e Revit). Programas mais simples costumam funcionar; vale testar.
+
+Se o app foi útil, considere pagar um café ☕️
+LivePix: https://livepix.gg/zoedrewerro404
+Pix (CNPJ): 54.913.468/0001-04

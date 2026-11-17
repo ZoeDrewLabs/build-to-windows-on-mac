@@ -1,0 +1,16 @@
+# Dados da instalação local (garrafa do Windows, jogos, logs) — nunca vão para o GitHub
+bottles/
+logs/
+cache/
+
+# Motor do Wine e tradutores (grandes, de terceiros; o build.sh baixa)
+engine/
+app/payload-cache/
+
+# Resultado do build (o .dmg vai como anexo em Releases)
+dist/
+
+# Configurações salvas de cada jogo (específicas de cada Mac)
+profiles/*.config.reg
+
+.DS_Store
