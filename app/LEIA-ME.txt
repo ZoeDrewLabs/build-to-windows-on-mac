@@ -33,3 +33,6 @@ O QUE NÃO FUNCIONA BEM
 Se o app foi útil, considere pagar um café ☕️
 LivePix: https://livepix.gg/zoedrewerro404
 Pix (CNPJ): 54.913.468/0001-04
+
+Licença: PolyForm Strict 1.0.0 — uso gratuito e não comercial; proibido redistribuir, vender ou
+publicar versões modificadas. Componentes de terceiros (Wine, D3DMetal etc.) seguem as próprias licenças.

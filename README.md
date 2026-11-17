@@ -70,9 +70,20 @@ app/build.sh
 
 O script baixa o motor e os tradutores nas versões testadas e gera `dist/Build to Windows on Mac.app` e o `.dmg`.
 
-## Créditos e licenças
+## Licença
 
-Este projeto junta e automatiza o trabalho de outras pessoas:
+O código deste repositório está sob a **[PolyForm Strict 1.0.0](LICENSE.md)**:
+
+- ✅ **Pode usar de graça**, para fins pessoais e não comerciais (inclui escolas, ONGs e órgãos públicos).
+- ❌ **Não pode redistribuir** o app nem o código — baixe sempre daqui, da página de [Releases](../../releases).
+- ❌ **Não pode cobrar** pelo app, vender, nem usar em produto ou serviço comercial.
+- ❌ **Não pode publicar versões modificadas.**
+
+Quer usar de outro jeito? Fale comigo abrindo uma [issue](../../issues).
+
+## Créditos e licenças de terceiros
+
+Este projeto junta e automatiza o trabalho de outras pessoas, e cada parte mantém a licença original:
 
 - **[Wine](https://www.winehq.org)** — LGPL 2.1. Código-fonte em [gitlab.winehq.org/wine/wine](https://gitlab.winehq.org/wine/wine).
 - **[Sikarugir](https://github.com/Sikarugir-App)** — builds do Wine para macOS e o pacote de tradutores (veja as licenças no repositório deles).

@@ -62,6 +62,7 @@ rm -rf "$STAGE" "$DMG" && mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Aplicativos"
 cp "$SRC/LEIA-ME.txt" "$STAGE/LEIA-ME.txt"
+cp "$ROOT/LICENSE.md" "$STAGE/LICENCA.md"
 hdiutil create -volname "Build to Windows on Mac" -srcfolder "$STAGE" -fs HFS+ -format ULFO -ov "$DMG" >/dev/null
 rm -rf "$STAGE"
 echo "pronto: $APP"
