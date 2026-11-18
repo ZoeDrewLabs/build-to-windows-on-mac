@@ -14,6 +14,12 @@ struct WinProgram: Identifiable, Hashable {
     let lnk: String         // atalho .lnk dentro da garrafa
 }
 
+struct WinComponent: Identifiable, Hashable {
+    let id: String          // vcredist, dotnet48
+    let name: String
+    let installed: Bool
+}
+
 struct Game: Identifiable, Hashable {
     let id: String          // nome do perfil (arquivo profiles/<id>.env)
     let title: String
@@ -48,6 +54,7 @@ final class Runner: ObservableObject {
     @Published var isSetUp = false        // tradução instalada (motor + "Windows")
     @Published var hasSteam = false
     @Published var programs: [WinProgram] = []
+    @Published var components: [WinComponent] = []
     @Published var folderAvailable = true
     @Published var showFPS = UserDefaults.standard.bool(forKey: "showFPS") {
         didSet { UserDefaults.standard.set(showFPS, forKey: "showFPS") }
@@ -115,6 +122,7 @@ final class Runner: ObservableObject {
         isSetUp = engineOK && fm.fileExists(atPath: bottle + "/drive_c")
         hasSteam = fm.fileExists(atPath: bottle + "/drive_c/Program Files (x86)/Steam/steam.exe")
         programs = Runner.installedPrograms(in: bottle)
+        if isSetUp { loadComponents() }
         let profiles = (dataFolder as NSString).appendingPathComponent("profiles")
         let files = (try? fm.contentsOfDirectory(atPath: profiles)) ?? []
         games = files.filter { $0.hasSuffix(".env") }.sorted().compactMap { file in
@@ -196,6 +204,64 @@ final class Runner: ObservableObject {
     static let windowsExtensions: Set<String> = ["exe", "msi", "bat", "cmd"]
 
     /// Abre um programa de Windows (.exe roda, .msi instala) — sem máquina virtual, só tradução.
+    /// Roda "zog.sh <args>" e devolve a saída (para consultas rápidas que não usam o Wine).
+    func quick(_ args: [String]) -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = [script] + args
+        var env = ProcessInfo.processInfo.environment
+        env["ZOG_HOME"] = dataFolder
+        p.environment = env
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return "" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    func loadComponents() {
+        components = quick(["componentes"]).split(separator: "\n").compactMap { line in
+            let f = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            return f.count == 3 ? WinComponent(id: f[0], name: f[1], installed: f[2] == "sim") : nil
+        }
+    }
+
+    /// Antes de abrir: o catálogo conhece esse programa? Tem versão para Mac? Não funciona no Wine?
+    /// Devolve true se pode seguir.
+    func confirmWithCatalog(_ url: URL) -> Bool {
+        let out = quick(["catalogo", url.deletingPathExtension().lastPathComponent])
+        let f = out.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\t")
+        guard f.count >= 5 else { return true }               // não está no catálogo
+        let (name, sit, link, note) = (f[0], f[1], f[2], f[4])
+        guard sit == "mac" || sit == "nao" else {
+            log += "\nPrograma reconhecido: \(name) — \(note)\n"
+            return true
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        if sit == "mac" {
+            alert.messageText = "\(name) tem versão para Mac"
+            alert.informativeText = "\(note)\n\nA versão nativa roda melhor e não precisa de tradução. Quer abrir o site da versão para Mac?"
+            alert.addButton(withTitle: "Abrir site da versão Mac")
+            alert.addButton(withTitle: "Usar a de Windows mesmo assim")
+            alert.addButton(withTitle: "Cancelar")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                if let u = URL(string: link) { NSWorkspace.shared.open(u) }
+                return false
+            case .alertSecondButtonReturn: return true
+            default: return false
+            }
+        } else {
+            alert.alertStyle = .warning
+            alert.messageText = "\(name) não funciona por aqui"
+            alert.informativeText = note
+            alert.addButton(withTitle: "Cancelar")
+            alert.addButton(withTitle: "Tentar mesmo assim")
+            return alert.runModal() == .alertSecondButtonReturn
+        }
+    }
+
     func openWindowsFile(_ url: URL) {
         guard Runner.windowsExtensions.contains(url.pathExtension.lowercased()) else {
             log += "\n\(url.lastPathComponent): não é um programa de Windows (.exe, .msi, .bat).\n"
@@ -209,7 +275,8 @@ final class Runner: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.openWindowsFile(url) }
             return
         }
-        run(["abrir", url.path])
+        guard confirmWithCatalog(url) else { log += "\n\(url.lastPathComponent): cancelado.\n"; return }
+        run(["abrir", url.path], extraEnv: ["ZOG_FORCAR": "1"])
     }
 
     func pickWindowsFile() {
@@ -429,6 +496,23 @@ struct ContentView: View {
                                 Button("Abrir") { r.run(["abrir-programa", prog.name]) }.controlSize(.small)
                             }
                             Divider()
+                        }
+                    }
+                }.disabled(r.busy).padding(4)
+            }
+
+            GroupBox("Ferramentas profissionais") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Programas de empresa costumam precisar destes componentes do Windows. Eles vêm direto da Microsoft. Ao arrastar um instalador, o app também avisa se o programa tem versão para Mac ou se não funciona por aqui.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    ForEach(r.components) { c in
+                        HStack {
+                            Image(systemName: c.installed ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(c.installed ? .green : .secondary)
+                            Text(c.name)
+                            Spacer()
+                            if c.installed { Text("instalado").font(.caption).foregroundStyle(.secondary) }
+                            else { Button("Instalar") { r.run(["instalar-componente", c.id]) }.controlSize(.small) }
                         }
                     }
                 }.disabled(r.busy).padding(4)

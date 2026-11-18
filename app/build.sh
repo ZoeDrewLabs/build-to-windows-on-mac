@@ -6,7 +6,7 @@ SRC="${0:A:h}"
 ROOT="${SRC:h}"
 OUT="$ROOT/dist"
 APP="$OUT/Build to Windows on Mac.app"
-VERSION="1.0.1"
+VERSION="1.1"
 
 rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/scripts" "$APP/Contents/Resources/profiles"
 
@@ -16,7 +16,7 @@ swiftc -parse-as-library -O -target arm64-apple-macos14 "$SRC/main.swift" -o "$A
 cp "$ROOT/scripts/zog.sh" "$APP/Contents/Resources/scripts/"
 chmod +x "$APP/Contents/Resources/scripts/zog.sh"
 # perfis que vão junto (só o .env: as configurações salvas são de cada Mac)
-cp "$ROOT"/profiles/*.env "$APP/Contents/Resources/profiles/"
+cp "$ROOT"/profiles/*.env "$ROOT"/profiles/catalogo.tsv "$APP/Contents/Resources/profiles/"
 
 # Pacote embutido (instala sem internet): motor do Wine e tradutores gráficos. A Steam é opcional (baixada no app).
 # Gerado uma vez a partir da instalação testada em engine/ e guardado em app/payload-cache.

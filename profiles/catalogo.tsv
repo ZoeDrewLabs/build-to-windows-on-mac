@@ -1,0 +1,29 @@
+# Catálogo de programas conhecidos — o app confere o nome do instalador/programa contra a coluna "procura".
+# Combina por PALAVRA INTEIRA (o nome do arquivo é quebrado em palavras: "CorelDRAW_2024_Setup.exe" → coreldraw 2024 setup).
+# Colunas (separadas por TAB):
+#   procura     palavras do nome do arquivo (minúsculas, separadas por |)
+#   nome        nome do programa
+#   situacao    mac = tem versão nativa para Mac (usar ela) · nao = não funciona no Wine
+#               testado = testado aqui e funciona · naotestado = pode funcionar, sem garantia
+#   link        página oficial da versão Mac (ou -)
+#   componentes componentes do Windows a instalar antes (vcredist, dotnet48) ou -
+#   nota        explicação curta
+# Só marque "testado" o que foi testado de verdade neste app.
+procura	nome	situacao	link	componentes	nota
+coreldraw|corel draw|cdgs|coreldrw	CorelDRAW	mac	https://www.coreldraw.com/br/product/coreldraw/mac/	-	O CorelDRAW Graphics Suite tem versão nativa para Mac desde 2019.
+autocad|acad	AutoCAD	mac	https://www.autodesk.com/br/products/autocad/overview	-	O AutoCAD tem versão para Mac (mesma assinatura da Autodesk).
+sketchup	SketchUp	mac	https://www.sketchup.com/pt-BR	-	O SketchUp tem versão nativa para Mac.
+archicad	Archicad	mac	https://graphisoft.com/br	-	O Archicad tem versão nativa para Mac.
+rhino	Rhino	mac	https://www.rhino3d.com/	-	O Rhino tem versão nativa para Mac.
+fusion360|fusion 360|fusion admin	Fusion	mac	https://www.autodesk.com/br/products/fusion-360/overview	-	O Fusion tem versão nativa para Mac.
+officesetup|setupprodoffice|office365|winword|powerpnt	Microsoft Office	mac	https://www.microsoft.com/pt-br/microsoft-365/mac	-	Word, Excel, PowerPoint e Outlook têm versão nativa para Mac.
+photoshop|illustrator|indesign|premiere|aftereffects|creative cloud|creativecloud	Adobe Creative Cloud	mac	https://www.adobe.com/br/creativecloud.html	-	Os apps da Adobe têm versão nativa para Mac.
+blender	Blender	mac	https://www.blender.org/download/	-	O Blender tem versão nativa para Mac.
+revit	Revit	nao	-	-	O Revit não roda no Wine (depende de componentes do Windows que o Wine não tem). Alternativas no Mac: Archicad, Vectorworks.
+solidworks|swinstall	SOLIDWORKS	nao	-	-	O SOLIDWORKS não roda no Wine. Alternativas no Mac: Fusion, Onshape (no navegador).
+3dsmax|3ds max	3ds Max	nao	-	-	O 3ds Max não roda no Wine. Alternativas no Mac: Blender, Cinema 4D, Maya.
+pbidesktop|pbidesktopsetup|powerbi|power bi	Power BI Desktop	naotestado	-	dotnet48	Precisa do .NET e do WebView2; costuma dar problema no Wine. Alternativa: Power BI no navegador (app.powerbi.com).
+visio	Microsoft Visio	naotestado	-	-	Sem versão para Mac. Alternativa: Visio no navegador (Microsoft 365).
+winproj|msproject	Microsoft Project	naotestado	-	-	Sem versão para Mac. Alternativa: Project no navegador (Microsoft 365).
+msaccess|accessruntime	Microsoft Access	naotestado	-	-	Sem versão para Mac. Pode funcionar parcialmente; teste com cuidado.
+npp|notepadplusplus	Notepad++	naotestado	-	-	Editor leve que costuma rodar bem no Wine.

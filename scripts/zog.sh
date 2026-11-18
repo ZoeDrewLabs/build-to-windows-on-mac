@@ -14,6 +14,9 @@
 #   zog.sh salvar <jogo>        guarda as configurações gráficas atuais do jogo no perfil
 #   zog.sh restaurar <jogo>     volta as configurações guardadas (com o jogo fechado)
 #   zog.sh abrir <arquivo>      roda qualquer programa de Windows (.exe, .msi, .bat)
+#   zog.sh componentes          lista os componentes do Windows (Visual C++, .NET) e se estão instalados
+#   zog.sh instalar-componente <id>  instala um componente (vcredist, dotnet48)
+#   zog.sh catalogo <arquivo>   mostra o que o app sabe sobre um programa (tem versão Mac? funciona?)
 #   zog.sh log [linhas]         mostra o fim do último log (para colar no Claude)
 #   zog.sh kill                 fecha tudo que está rodando na garrafa
 #   zog.sh cfg                  abre o winecfg
@@ -142,30 +145,131 @@ eng = [n[:-7] for n in assets(sys.argv[1]) if re.fullmatch(r"WS12WineSikarugir[\
 tpl = [n[:-7] for n in assets(sys.argv[2]) if re.fullmatch(r"Template-[\d.]+\.tar\.xz", n)]
 print((max(eng, key=key) if eng else "") + "|" + (max(tpl, key=key) if tpl else ""))
 '
+  xcode-select -p >/dev/null 2>&1 || return 1     # sem ferramentas de desenvolvedor: não chama o python3
   python3 -c "$py" "$ENGINES_REPO" "$WRAPPER_REPO" 2>/dev/null
 }
 
 # Lê a tela principal (onde os programas de Windows abrem): nome, interna/externa,
 # pontos (o que o macOS mostra), pixels reais e frequência. Resultado em TELA_*.
+# Só usa ferramentas que todo Mac tem (system_profiler + plutil) — nada de Python,
+# que num Mac sem as ferramentas de desenvolvedor abriria uma janela pedindo instalação.
 detect_display() {
-  local info
-  info=$(system_profiler -json SPDisplaysDataType 2>/dev/null | python3 -c '
-import json, re, sys
-d = json.load(sys.stdin)
-screens = [s for g in d.get("SPDisplaysDataType", []) for s in g.get("spdisplays_ndrvs", [])
-           if s.get("spdisplays_online", "spdisplays_yes") == "spdisplays_yes"]
-main = next((s for s in screens if s.get("spdisplays_main") == "spdisplays_yes"), screens[0] if screens else None)
-if not main: print("?|?|0|0|0|0|60"); sys.exit()
-def nums(v): return [float(x) for x in re.findall(r"[\d.]+", v or "")]
-px = nums(main.get("_spdisplays_pixels")); pt = nums(main.get("_spdisplays_resolution"))
-hz = pt[2] if len(pt) > 2 else 60
-kind = "interna" if main.get("spdisplays_connection_type") == "spdisplays_internal" else "externa"
-print("|".join(map(str, [main.get("_name", "?"), kind, int(pt[0]) if pt else 0, int(pt[1]) if len(pt) > 1 else 0,
-                         int(px[0]) if px else 0, int(px[1]) if len(px) > 1 else 0, int(round(hz))])))
-' 2>/dev/null)
-  IFS='|' read -r TELA_NOME TELA_TIPO TELA_PTW TELA_PTH TELA_PXW TELA_PXH TELA_HZ <<<"${info:-?|?|0|0|0|0|60}"
+  local j g d ng nd k first="" pick="" v
+  TELA_NOME="?"; TELA_TIPO="?"; TELA_PTW=0; TELA_PTH=0; TELA_PXW=0; TELA_PXH=0; TELA_HZ=60
+  j=$(mktemp -t zogtela) || return
+  system_profiler -json SPDisplaysDataType > "$j" 2>/dev/null
+  pj() { plutil -extract "$1" raw -o - "$j" 2>/dev/null; }
+  ng=$(pj SPDisplaysDataType); [[ "$ng" == <-> ]] || ng=0
+  for (( g = 0; g < ng; g++ )); do
+    nd=$(pj "SPDisplaysDataType.$g.spdisplays_ndrvs"); [[ "$nd" == <-> ]] || continue
+    for (( d = 0; d < nd; d++ )); do
+      k="SPDisplaysDataType.$g.spdisplays_ndrvs.$d"
+      [[ "$(pj $k.spdisplays_online)" == spdisplays_no ]] && continue
+      [[ -z "$first" ]] && first="$k"
+      [[ "$(pj $k.spdisplays_main)" == spdisplays_yes ]] && { pick="$k"; break 2; }
+    done
+  done
+  pick="${pick:-$first}"
+  if [[ -n "$pick" ]]; then
+    TELA_NOME="$(pj $pick._name)"
+    [[ "$(pj $pick.spdisplays_connection_type)" == spdisplays_internal ]] && TELA_TIPO=interna || TELA_TIPO=externa
+    v=(${(s: :)$(pj $pick._spdisplays_pixels)});     TELA_PXW=${v[1]:-0}; TELA_PXH=${v[3]:-0}
+    v=(${(s: :)$(pj $pick._spdisplays_resolution)}); TELA_PTW=${v[1]:-0}; TELA_PTH=${v[3]:-0}
+    [[ "${v[5]:-}" == [0-9]* ]] && TELA_HZ=${${v[5]%Hz}%%.*}
+  fi
+  rm -f "$j"
+  [[ "$TELA_PTW" == <-> ]] || TELA_PTW=0; [[ "$TELA_PXW" == <-> ]] || TELA_PXW=0
   TELA_ESCALA=1
   (( TELA_PTW > 0 && TELA_PXW >= TELA_PTW * 3 / 2 )) && TELA_ESCALA=2
+}
+
+# ---------- catálogo de programas conhecidos (profiles/catalogo.tsv) ----------
+# Quebra o nome do arquivo em palavras e procura no catálogo. Saída: nome<TAB>situacao<TAB>link<TAB>componentes<TAB>nota
+catalog_match() {
+  local cat="$PROFILES/catalogo.tsv" words pat line
+  [[ -f "$cat" ]] || cat="$SCRIPTS/../profiles/catalogo.tsv"
+  [[ -f "$cat" ]] || return 1
+  words=" ${${(L)1}//[^a-z0-9+]/ } "; words="${words//  / }"
+  while IFS=$'\t' read -r pat line; do
+    [[ -z "$pat" || "$pat" == \#* || "$pat" == procura ]] && continue
+    for p in ${(s:|:)pat}; do
+      [[ "$words" == *" $p "* ]] && { print -r -- "$line"; return 0; }
+    done
+  done < "$cat"
+  return 1
+}
+
+# ---------- componentes do Windows (instaladores oficiais da Microsoft) ----------
+# id|nome
+COMPONENTES=(
+  "vcredist|Visual C++ 2015–2022 (x64 e x86)"
+  "dotnet48|.NET Framework 4.8"
+)
+# Instalado de verdade? (o Wine já traz arquivos com esses nomes, então não basta ver o arquivo)
+#  - Visual C++: o instalador da Microsoft grava VC\Runtimes\X64 Installed=1 no registro
+#  - .NET: o .NET real tem clr.dll; o substituto do Wine (Wine Mono) não tem
+comp_installed() {   # $1 = id
+  case "$1" in
+    vcredist) grep -i -A8 'VisualStudio.*14\.0.*VC.*Runtimes.*X64\]' "$BOTTLE/system.reg" 2>/dev/null \
+                | grep -qi '"Installed"=dword:00000001' ;;
+    dotnet48) [[ -f "$BOTTLE/drive_c/windows/Microsoft.NET/Framework64/v4.0.30319/clr.dll" \
+                 && -f "$BOTTLE/drive_c/windows/system32/mscoree.dll" ]] \
+                 && ! grep -q --text WINE_MONO_OVERRIDES "$BOTTLE/drive_c/windows/system32/mscoree.dll" ;;
+    *) return 1 ;;
+  esac
+}
+install_component() {  # $1 = id
+  local id="$1" f
+  comp_installed "$id" && { echo "$id: já instalado."; return 0; }
+  mkdir -p "$ZOG/cache"
+  case "$id" in
+    vcredist)
+      for a in x64 x86; do
+        f="$ZOG/cache/vc_redist.$a.exe"
+        fetch "https://aka.ms/vs/17/release/vc_redist.$a.exe" "$f" || return 1
+        echo "instalando Visual C++ ($a)..."
+        "$WINE" "$f" /install /quiet /norestart >>"$LOG" 2>&1
+      done ;;
+    dotnet48)
+      # Mesma sequência do winetricks (referência do Wine para instalar o .NET de verdade):
+      #  1) tira o Wine Mono (o substituto do .NET que vem no Wine), que se passa por ".NET 4.8.1"
+      #  2) instala o .NET 4.0 fingindo ser Windows XP — é ele que coloca o mscoree.dll
+      #  3) instala o .NET 4.8 fingindo ser Windows 7 (no Windows 10 o instalador acha que já tem)
+      #  4) manda o Wine usar o mscoree da Microsoft e volta para Windows 10
+      local f40="$ZOG/cache/dotNetFx40_Full_x86_x64.exe" f48="$ZOG/cache/ndp48-x86-x64-allos-enu.exe" g d
+      fetch "https://download.microsoft.com/download/9/5/A/95A9616B-7A37-4AF6-BC36-D6EA96C8DAAE/dotNetFx40_Full_x86_x64.exe" "$f40" || return 1
+      fetch "https://go.microsoft.com/fwlink/?linkid=2088631" "$f48" || return 1
+      echo "removendo o Wine Mono (substituto do .NET)..."
+      for d in 'Wine Mono Windows Support' 'Wine Mono Runtime' 'Wine Mono'; do
+        g=$(WINEDEBUG=-all "$WINE" uninstaller --list 2>&1 | grep "$d" | cut -f1 -d'|' | grep -o '{[^}]*}' | head -1)
+        [[ -n "$g" ]] && "$WINE" uninstaller --remove "$g" >>"$LOG" 2>&1
+      done
+      "$WINE" reg delete "HKLM\\Software\\Microsoft\\NET Framework Setup\\NDP\\v3.5" /f >>"$LOG" 2>&1
+      "$WINE" reg delete "HKLM\\Software\\Microsoft\\NET Framework Setup\\NDP\\v4" /f >>"$LOG" 2>&1
+      "$WINE_DIR/bin/wineserver" -w
+      for d in system32 syswow64; do
+        grep -q --text WINE_MONO_OVERRIDES "$BOTTLE/drive_c/windows/$d/mscoree.dll" 2>/dev/null \
+          && rm -f "$BOTTLE/drive_c/windows/$d/mscoree.dll"
+      done
+      echo "instalando .NET Framework 4.0 (base)..."
+      "$WINE" reg add "HKCU\\Software\\Wine" /v Version /d winxp64 /f >>"$LOG" 2>&1
+      WINEDLLOVERRIDES=fusion=b "$WINE" "$f40" /q '/c:install.exe /q' >>"$LOG" 2>&1
+      "$WINE_DIR/bin/wineserver" -w
+      "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v mscoree /d native /f >>"$LOG" 2>&1
+      "$WINE" reg add "HKLM\\Software\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full" /v Install /t REG_DWORD /d 1 /f >>"$LOG" 2>&1
+      "$WINE" reg add "HKLM\\Software\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full" /v Version /d 4.0.30319 /f >>"$LOG" 2>&1
+      "$WINE" reg add "HKLM\\Software\\Microsoft\\.NETFramework" /v OnlyUseLatestCLR /t REG_DWORD /d 1 /f >>"$LOG" 2>&1
+      "$WINE" reg add "HKLM\\Software\\Wow6432Node\\.NETFramework" /v OnlyUseLatestCLR /t REG_DWORD /d 1 /f >>"$LOG" 2>&1
+      echo "instalando .NET Framework 4.8 (demora alguns minutos)..."
+      "$WINE" reg add "HKCU\\Software\\Wine" /v Version /d win7 /f >>"$LOG" 2>&1
+      WINEDLLOVERRIDES=fusion=b "$WINE" "$f48" /sfxlang:1027 /q /norestart >>"$LOG" 2>&1
+      "$WINE_DIR/bin/wineserver" -w
+      "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v mscoree /d native /f >>"$LOG" 2>&1
+      "$WINE" reg add "HKCU\\Software\\Wine" /v Version /d win10 /f >>"$LOG" 2>&1 ;;
+    *) echo "Componente desconhecido: $id"; return 1 ;;
+  esac
+  "$WINE_DIR/bin/wineserver" -w
+  comp_installed "$id" && echo "$id: instalado." || { echo "$id: não instalou. Veja: zog.sh log"; return 1; }
 }
 
 # Antes de abrir qualquer coisa: Retina e escala do Windows de acordo com a tela.
@@ -284,12 +388,12 @@ case "$cmd" in
     GAME="${1:?uso: zog.sh novo <jogo> <appid>}"; APPID="${2:?falta o appid da Steam}"
     mkdir -p "$PROFILES"
     f="$PROFILES/$GAME.env"; [[ -f "$f" ]] && { echo "Já existe: $f"; exit 1; }
-    INFO=$(curl -s "https://store.steampowered.com/api/appdetails?appids=$APPID&filters=basic,platforms" \
-      | python3 -c "import json,sys
-d=json.load(sys.stdin)['$APPID']
-if not d['success']: print('?|?')
-else: p=d['data']['platforms']; print(d['data']['name']+'|'+','.join(k for k,v in p.items() if v))" 2>/dev/null)
-    NAME="${INFO%%|*}"; PLAT="${INFO#*|}"
+    # Nome e plataformas na loja da Steam (plutil lê JSON; não precisa de Python)
+    J=$(mktemp -t zogsteam); curl -s "https://store.steampowered.com/api/appdetails?appids=$APPID&filters=basic,platforms" > "$J"
+    NAME=$(plutil -extract "$APPID.data.name" raw -o - "$J" 2>/dev/null)
+    PLAT=""; for o in windows mac linux; do
+      [[ "$(plutil -extract "$APPID.data.platforms.$o" raw -o - "$J" 2>/dev/null)" == true ]] && PLAT+="$o,"
+    done; PLAT="${PLAT%,}"; rm -f "$J"
     cat > "$f" <<EOF
 # Perfil de ${NAME:-$GAME} (Steam appid $APPID)
 # Cada correção de bug deste jogo entra aqui, com um comentário dizendo o porquê.
@@ -329,6 +433,18 @@ EOF
     [[ -f "$FILE" ]] || { echo "Não achei: $FILE"; exit 1; }
     FILE="${FILE:A}"
     NAME="${FILE:t:r}"
+    if info=$(catalog_match "$NAME"); then
+      IFS=$'\t' read -r C_NOME C_SIT C_LINK C_COMP C_NOTA <<<"$info"
+      if [[ "${ZOG_FORCAR:-0}" != 1 ]]; then
+        case "$C_SIT" in
+          mac) echo "AVISO-MAC|$C_NOME|$C_LINK|$C_NOTA"; exit 20 ;;      # o app mostra o aviso e oferece abrir mesmo assim
+          nao) echo "AVISO-NAO|$C_NOME|-|$C_NOTA";       exit 21 ;;
+        esac
+      fi
+      echo "programa reconhecido: $C_NOME ($C_SIT) — $C_NOTA"
+      newlog "app-${NAME// /_}"
+      for c in ${(s:,:)C_COMP}; do [[ "$c" == - ]] || install_component "$c" || true; done
+    fi
     load_profile "app-${NAME:l}" >/dev/null 2>&1   # perfil opcional profiles/app-<nome>.env
     apply_display; set_renderer; newlog "app-${NAME// /_}"
     cd "${FILE:h}"                                   # muitos programas procuram arquivos na própria pasta
@@ -337,6 +453,21 @@ EOF
       bat|cmd) "$WINE" cmd /c "$FILE" "$@" >"$LOG" 2>&1 & disown ;;
       *)   echo "abrindo $NAME..."; "$WINE" "$FILE" "$@" >"$LOG" 2>&1 & disown ;;
     esac ;;
+  componentes)
+    # lista: id|nome|instalado(sim/nao)
+    need_data
+    for c in $COMPONENTES; do
+      id="${c%%|*}"; comp_installed "$id" && st=sim || st=nao
+      print -r -- "$id|${c#*|}|$st"
+    done ;;
+  instalar-componente)
+    need_data; need_rosetta
+    steam_running && echo "(a Steam está aberta; tudo bem, mas feche programas de Windows abertos se der erro)"
+    newlog "componente-${1:-x}"
+    install_component "${1:?uso: zog.sh instalar-componente vcredist|dotnet48}" ;;
+  catalogo)
+    # testa o catálogo com um nome de arquivo: zog.sh catalogo CorelDRAW_2024_Setup.exe
+    catalog_match "${1:?uso: zog.sh catalogo <nome do arquivo>}" || echo "não está no catálogo" ;;
   programas)
     # Programas instalados no "Windows" (atalhos do Menu Iniciar), um por linha: nome|caminho do .lnk
     need_data
@@ -438,5 +569,5 @@ EOF
     fi ;;
   onde) echo "$ZOG" ;;
   tela) need_data; apply_display ;;
-  *)    sed -n '2,29p' "$0" ;;
+  *)    sed -n '2,32p' "$0" ;;
 esac
