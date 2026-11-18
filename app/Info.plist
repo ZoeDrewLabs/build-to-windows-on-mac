@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Build to Windows on Mac</string>
+	<string>__NAME__</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -31,15 +31,17 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>local.buildtowindowsonmac.app</string>
+	<string>__BUNDLEID__</string>
 	<key>CFBundleName</key>
-	<string>Build to Windows on Mac</string>
+	<string>__NAME__</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>__VERSION__</string>
 	<key>CFBundleVersion</key>
 	<string>__VERSION__</string>
+	<key>ZOGEdition</key>
+	<string>__EDITION__</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
 	<key>LSArchitecturePriority</key>

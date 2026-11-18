@@ -1,0 +1,47 @@
+BUILD TO WINDOWS ON MAC + GAMING — jogos de Windows no Mac, com a Steam pronta
+Gratuito. Sem máquina virtual: o Wine traduz o jogo de Windows direto para o macOS,
+e os tradutores gráficos (D3DMetal da Apple, DXMT, DXVK) traduzem o DirectX para o Metal.
+
+PRECISA DE
+- Mac com chip Apple (M1, M2, M3, M4 ou mais novo)
+- macOS 14 Sonoma ou mais novo
+- Internet na instalação (para baixar a Steam direto da Valve)
+- Rosetta 2, o tradutor da Apple: se faltar, o app instala sozinho com um clique, direto da Apple
+- ~2 GB livres para a tradução + ~1 GB para a Steam + o espaço dos jogos
+
+COMO INSTALAR
+1. Arraste "Build to Windows on Mac + Gaming" para a pasta "Aplicativos" (ao lado).
+2. Abra o app pela pasta Aplicativos.
+   Na primeira vez o macOS pode dizer que não conseguiu verificar o desenvolvedor
+   (o app ainda não é assinado pela Apple). Para liberar:
+   Ajustes do Sistema → Privacidade e Segurança → role até o fim → "Abrir Mesmo Assim".
+3. Clique em "Instalar". O app instala a tradução e já instala a Steam de Windows sozinha,
+   pelo instalador oficial baixado da Valve na hora (o app não leva a Steam dentro dele:
+   os arquivos são da Valve). A escala da tela (Retina) já fica certa para o seu Mac.
+4. Clique em "Abrir Steam" e entre na sua conta. Na primeira abertura a Steam se atualiza (uns minutos).
+
+JOGANDO
+- Os jogos instalados na Steam aparecem no topo da janela do app. Clique em "Jogar".
+- O app olha o motor de cada jogo e escolhe o tradutor gráfico certo:
+  GameMaker → DXMT · Unity e Unreal → D3DMetal · jogos DirectX 9 → DXVK.
+- Na primeira vez que um jogo abre, uma tela de carregamento cobre a tela enquanto o app testa
+  o tradutor com o jogo. Se o jogo fechar ou der erro de DirectX, ele tenta o próximo
+  (D3DMetal → DXMT → DXVK → WineD3D) e guarda o que funcionou. Das próximas vezes abre direto,
+  e se mesmo assim o jogo cair no primeiro minuto, o app tenta o próximo tradutor sozinho.
+- Pela Steam, o tradutor vale para a Steam inteira. Se o jogo precisa de outro, o app avisa
+  e reabre a Steam com o tradutor certo antes de abrir o jogo.
+- Para guardar os jogos num SSD externo: botão "Jogos no SSD externo…" (com a Steam fechada);
+  depois, ao instalar um jogo na Steam, escolha essa unidade.
+- Para trocar o tradutor de um jogo à mão: ícone de monitor ao lado dele.
+- Programas de Windows (.exe/.msi) também funcionam: arraste para a janela, como no app geral.
+
+O QUE NÃO FUNCIONA BEM
+- Jogos com anti-cheat de kernel (Valorant, Fortnite, alguns modos online e outros).
+- Jogos que exigem DirectX 12 com recursos muito novos (ray tracing etc.) podem não abrir.
+
+Se o app foi útil, considere pagar um café ☕️
+LivePix: https://livepix.gg/zoedrewerro404
+Pix (CNPJ): 54.913.468/0001-04
+
+Licença: PolyForm Strict 1.0.0 — uso gratuito e não comercial; proibido redistribuir, vender ou
+publicar versões modificadas. Componentes de terceiros (Wine, D3DMetal, Steam etc.) seguem as próprias licenças.

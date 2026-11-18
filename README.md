@@ -6,6 +6,13 @@ Arraste um `.exe` ou `.msi` para o app e ele abre direto no macOS. Não tem um W
 
 ![Janela do Build to Windows on Mac](docs/screenshot.png)
 
+## Duas edições
+
+- **Build to Windows on Mac** — para programas de Windows (e jogos, se você quiser instalar a Steam).
+- **Build to Windows on Mac + Gaming** — feita para jogar: no *Instalar* ela já instala a **Steam de Windows sozinha** (pelo instalador oficial, baixado da Valve na hora), mostra os **jogos em primeiro lugar** e escolhe o **tradutor gráfico certo para cada jogo** pelo motor dele (GameMaker → DXMT, Unity e Unreal → D3DMetal, DirectX 9 → DXVK). Na primeira vez que um jogo abre, uma tela de carregamento cobre o jogo enquanto o app testa o tradutor; se o jogo fechar ou der erro de DirectX, tenta o próximo (D3DMetal → DXMT → DXVK → WineD3D) e guarda o que funcionou. Se a Steam estiver aberta com outro tradutor, o app avisa e reabre a Steam com o certo. Dá para guardar os jogos num SSD externo.
+
+Os dois instaladores (`.dmg`) ficam na mesma página de Releases.
+
 ## O que ele faz
 
 **Novo na 2.0:** cada programa roda numa **garrafa isolada** (um Windows só dele), o app **lê o `.exe` antes de rodar** para descobrir do que ele precisa, e os **componentes da Microsoft já vêm dentro do app** — Visual C++, .NET Framework 4.8 e as fontes do Windows instalam sem internet.
@@ -78,10 +85,12 @@ Precisa só das Command Line Tools da Apple (`xcode-select --install`):
 ```bash
 git clone https://github.com/ZoeDrewLabs/build-to-windows-on-mac.git
 cd build-to-windows-on-mac
-app/build.sh
+app/build.sh                    # edição geral
+EDITION=gaming app/build.sh     # edição + Gaming
+EDITION=todas app/build.sh      # as duas
 ```
 
-O script baixa o motor e os tradutores nas versões testadas e gera `dist/Build to Windows on Mac.app` e o `.dmg`.
+O script baixa o motor e os tradutores nas versões testadas e gera o app em `dist/` e o `.dmg` de cada edição.
 
 ## Licença
 

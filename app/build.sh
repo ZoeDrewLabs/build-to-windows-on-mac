@@ -1,12 +1,27 @@
 #!/bin/zsh
 # Monta "Build to Windows on Mac.app" e o instalador .dmg para outros Macs com chip Apple.
-# Uso: app/build.sh   (precisa só das Command Line Tools da Apple: xcode-select --install)
+# Uso: app/build.sh                   edição geral
+#      EDITION=gaming app/build.sh    edição "+ Gaming" (Steam instalada sozinha, tradutor por jogo)
+#      EDITION=todas app/build.sh     as duas (os dois DMGs vão no mesmo Release)
+# Precisa só das Command Line Tools da Apple: xcode-select --install
 set -e
 SRC="${0:A:h}"
 ROOT="${SRC:h}"
 OUT="$ROOT/dist"
-APP="$OUT/Build to Windows on Mac.app"
-VERSION="2.0.1"
+VERSION="2.1.0"
+EDITION="${EDITION:-geral}"
+if [[ "$EDITION" == todas ]]; then
+  EDITION=geral "$0" && EDITION=gaming "$0"; exit $?
+fi
+case "$EDITION" in
+  geral)  NAME="Build to Windows on Mac";          BUNDLE_ID="local.buildtowindowsonmac.app"
+          DMG_BASE="BuildToWindowsOnMac";           ICON="$SRC/AppIcon.icns";        README="$SRC/LEIA-ME.txt" ;;
+  gaming) NAME="Build to Windows on Mac + Gaming"; BUNDLE_ID="local.buildtowindowsonmac.gaming"
+          DMG_BASE="BuildToWindowsOnMac-Gaming";    ICON="$SRC/AppIcon-gaming.icns"; README="$SRC/LEIA-ME-gaming.txt" ;;
+  *) echo "EDITION deve ser geral, gaming ou todas"; exit 1 ;;
+esac
+echo "== edição: $NAME $VERSION =="
+APP="$OUT/$NAME.app"
 
 R="$APP/Contents/Resources"
 rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$R/scripts/lib" "$R/profiles" "$R/tools" "$R/runtime"
@@ -24,6 +39,7 @@ cp "$R/tools/docknome.dylib" "$ROOT/tools/docknome.dylib"
 
 # lançador + módulos (PrefixManager, Provisioner…) e ferramentas
 cp "$ROOT/scripts/zog.sh" "$R/scripts/"; cp "$ROOT"/scripts/lib/*.sh "$R/scripts/lib/"
+print -r -- "$EDITION" > "$R/edition"           # o zog.sh lê (gaming.sh: is_gaming)
 cp "$ROOT/tools/winetricks" "$ROOT/tools/cabextract" "$R/tools/"
 chmod +x "$R/scripts/zog.sh" "$R/tools/"*
 # perfis que vão junto (só o .env: as configurações salvas são de cada Mac)
@@ -82,23 +98,27 @@ else
 fi
 echo "componentes Microsoft embutidos: $(du -sh "$MS" | cut -f1)"
 
-# ícone
-if [[ -f "$SRC/AppIcon.icns" ]]; then cp "$SRC/AppIcon.icns" "$APP/Contents/Resources/"; fi
+# ícone (o da + Gaming é gerado pelo icon.swift na primeira vez)
+if [[ "$EDITION" == gaming && ! -f "$ICON" ]]; then
+  T="$(mktemp -d)"; swift "$SRC/icon.swift" "$T" gaming && iconutil -c icns "$T/AppIcon.iconset" -o "$ICON"; rm -rf "$T"
+fi
+if [[ -f "$ICON" ]]; then cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"; fi
 
-sed "s/__VERSION__/$VERSION/g" "$SRC/Info.plist" > "$APP/Contents/Info.plist"
+sed -e "s/__VERSION__/$VERSION/g" -e "s/__NAME__/$NAME/g" -e "s/__BUNDLEID__/$BUNDLE_ID/g" -e "s/__EDITION__/$EDITION/g" \
+  "$SRC/Info.plist" > "$APP/Contents/Info.plist"
 
 # assinatura local (ad-hoc): sem ela o macOS nem abre o app em chip Apple
 codesign --force --deep -s - "$APP"
 
 # Imagem de disco: arrastar o app para Aplicativos
-DMG="$OUT/BuildToWindowsOnMac-$VERSION.dmg"
-STAGE="$OUT/dmg-stage"
+DMG="$OUT/$DMG_BASE-$VERSION.dmg"
+STAGE="$OUT/dmg-stage-$EDITION"
 rm -rf "$STAGE" "$DMG" && mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Aplicativos"
-cp "$SRC/LEIA-ME.txt" "$STAGE/LEIA-ME.txt"
+cp "$README" "$STAGE/LEIA-ME.txt"
 cp "$ROOT/LICENSE.md" "$STAGE/LICENCA.md"
-hdiutil create -volname "Build to Windows on Mac" -srcfolder "$STAGE" -fs HFS+ -format ULFO -ov "$DMG" >/dev/null
+hdiutil create -volname "$NAME" -srcfolder "$STAGE" -fs HFS+ -format ULFO -ov "$DMG" >/dev/null
 rm -rf "$STAGE"
 echo "pronto: $APP"
 echo "instalador para outros Macs: $DMG ($(du -h "$DMG" | cut -f1))"

@@ -1,5 +1,8 @@
-// Gera AppIcon.icns: montanha + controle, em gradiente. Uso: swift icon.swift <pasta-saida>
+// Gera AppIcon.iconset: montanha + controle, em gradiente. Uso: swift icon.swift <pasta-saida> [gaming]
+// "gaming": cores da edição + Gaming (verde/azul) e um selo "+".
 import AppKit
+
+let gaming = CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "gaming"
 
 func draw(_ size: CGFloat) -> NSBitmapImageRep {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size),
@@ -11,8 +14,10 @@ func draw(_ size: CGFloat) -> NSBitmapImageRep {
     let inset = 100 * s
     let rect = NSRect(x: inset, y: inset, width: size - 2 * inset, height: size - 2 * inset)
     let bg = NSBezierPath(roundedRect: rect, xRadius: 185 * s, yRadius: 185 * s)
-    NSGradient(colors: [NSColor(red: 0.42, green: 0.25, blue: 0.85, alpha: 1),
-                        NSColor(red: 0.98, green: 0.45, blue: 0.40, alpha: 1)])!.draw(in: bg, angle: -60)
+    let colors = gaming
+        ? [NSColor(red: 0.08, green: 0.10, blue: 0.30, alpha: 1), NSColor(red: 0.10, green: 0.85, blue: 0.55, alpha: 1)]
+        : [NSColor(red: 0.42, green: 0.25, blue: 0.85, alpha: 1), NSColor(red: 0.98, green: 0.45, blue: 0.40, alpha: 1)]
+    NSGradient(colors: colors)!.draw(in: bg, angle: -60)
     // montanha
     let m = NSBezierPath()
     m.move(to: NSPoint(x: 170 * s, y: 300 * s))
@@ -41,6 +46,14 @@ func draw(_ size: CGFloat) -> NSBitmapImageRep {
     NSBezierPath(ovalIn: NSRect(x: 585 * s, y: 300 * s, width: 40 * s, height: 40 * s)).fill()
     NSColor(red: 0.55, green: 0.85, blue: 0.95, alpha: 1).setFill()
     NSBezierPath(ovalIn: NSRect(x: 625 * s, y: 255 * s, width: 40 * s, height: 40 * s)).fill()
+    if gaming {   // selo "+" no canto
+        let badge = NSBezierPath(ovalIn: NSRect(x: 690 * s, y: 690 * s, width: 220 * s, height: 220 * s))
+        NSColor(red: 0.10, green: 0.85, blue: 0.55, alpha: 1).setFill(); badge.fill()
+        NSColor.white.setStroke(); badge.lineWidth = 14 * s; badge.stroke()
+        NSColor.white.setFill()
+        NSBezierPath(rect: NSRect(x: 745 * s, y: 783 * s, width: 110 * s, height: 34 * s)).fill()
+        NSBezierPath(rect: NSRect(x: 783 * s, y: 745 * s, width: 34 * s, height: 110 * s)).fill()
+    }
     NSGraphicsContext.restoreGraphicsState()
     return rep
 }

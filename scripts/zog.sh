@@ -16,8 +16,13 @@
 #   zog.sh componentes [garrafa]       componentes do Windows e se estão instalados: id|nome|sim/nao
 #   zog.sh instalar-componente <garrafa> <id>...   instala componentes (fila com progresso)
 #   zog.sh catalogo <arquivo>          o que o app sabe sobre um programa (versão Mac? funciona?)
-#   zog.sh instalar-steam | steam      Steam de Windows (opcional, na garrafa "steam")
-#   zog.sh jogar <jogo> | peak         abre um jogo da Steam com o perfil dele
+#   zog.sh instalar-steam | steam      Steam de Windows (na + Gaming vem junto no setup)
+#   zog.sh jogar <jogo|appid> | peak   abre um jogo da Steam com o perfil e o tradutor certo dele
+#   zog.sh biblioteca                  jogos instalados na Steam: appid|nome|perfil|tradutor
+#   zog.sh tradutor-jogo <perfil> [auto|nome]   mostra/troca o tradutor gráfico de um jogo
+#   zog.sh detectar <pasta> [exe]      que tradutor gráfico o motor desse jogo pede
+#   zog.sh biblioteca-externa <pasta>  biblioteca de jogos da Steam noutra pasta (ex.: SSD externo)
+#   zog.sh edicao                      geral ou gaming
 #   zog.sh jogos | novo <jogo> <appid> | salvar <jogo> | restaurar <jogo>   perfis de jogos
 #   zog.sh kill [garrafa]              encerra os processos de uma garrafa (ou de todas)
 #   zog.sh log [linhas] | cfg [garrafa] | onde | tela [garrafa]
@@ -28,7 +33,7 @@
 
 set -u
 SCRIPTS="${0:A:h}"
-for m in core process prefix display catalog provision; do source "$SCRIPTS/lib/$m.sh"; done
+for m in core process prefix display catalog provision gaming; do source "$SCRIPTS/lib/$m.sh"; done
 PEINSPECT="$TOOLS/peinspect"; [[ -x "$PEINSPECT" ]] || PEINSPECT="$ZOG/tools/peinspect"
 STEAM_ARGS=()
 
@@ -36,7 +41,10 @@ STEAM_ARGS=()
 use_prefix "${ZOG_PREFIXO:-steam}"
 
 # Cancelado pelo app (SIGTERM) ou Ctrl-C: encerra os processos da garrafa em uso, sem deixar órfãos.
-trap 'echo "cancelado — encerrando a garrafa $PREFIX_NAME"; WINEPREFIX="$BOTTLE" "$WINESERVER" -k 2>/dev/null; exit 143' TERM INT
+# Enquanto só vigia um jogo já aberto (teste/plano B), cancelar NÃO fecha o jogo.
+WATCHING=0
+trap 'if (( WATCHING )); then print -r -- "TELA-TESTE|off"; echo "parei de vigiar — o jogo continua aberto"; exit 0; fi
+      echo "cancelado — encerrando a garrafa $PREFIX_NAME"; WINEPREFIX="$BOTTLE" "$WINESERVER" -k 2>/dev/null; exit 143' TERM INT
 
 # Depois que um instalador termina: olha os .exe novos e instala o que eles importam.
 post_install_scan() {
@@ -83,7 +91,13 @@ case "$cmd" in
     mkdir -p "$LOGS"
     for f in "$RES"/profiles/*(N); do [[ -e "$PROFILES/${f:t}" ]] || cp "$f" "$PROFILES/"; done
     migrate_old_layout
+    if is_gaming; then        # + Gaming: a Steam já vem instalada, sem clique
+      echo "edição + Gaming: instalando a Steam (instalador oficial, baixado da Valve agora)..."
+      install_steam || echo "A Steam não instalou agora; dá para tentar de novo no botão Instalar Steam."
+      echo "Pronto! Abra a Steam, entre na sua conta e jogue — o app escolhe o tradutor gráfico de cada jogo."
+    else
     echo "Pronto! Arraste um instalador ou programa de Windows (.exe/.msi) para o app — cada um ganha a própria garrafa."
+    fi
     if [[ "$(scutil --get HostName 2>/dev/null)" == "" ]] && hostname | grep -qE '^[0-9]'; then
       echo "Aviso: o nome de rede deste Mac é um número ($(hostname)). Se a Steam der 'erro de transporte', rode:"
       echo "  sudo scutil --set HostName \"$(scutil --get LocalHostName)\""
@@ -137,11 +151,6 @@ case "$cmd" in
     [[ -n "$C_COMP" && "$C_COMP" != - ]] && WANT+=(${(s:,:)C_COMP})
     [[ -n "$DEPS" ]] && WANT+=(${(s:,:)DEPS})
     (( ${#WANT} )) && provision_queue ${(u)WANT}
-    # Tradutor gráfico automático por tipo de programa (só se o perfil ainda não escolheu um)
-    if [[ "$FLAGS" == *gamemaker* ]] && ! grep -q '^ZOG_RENDERER=' "$PROFILES/app-$PREFIX_NAME.env" 2>/dev/null; then
-      print -r -- 'ZOG_RENDERER=dxmt   # GameMaker: o D3DMetal falha em CheckMultisampleQualityLevels' >> "$PROFILES/app-$PREFIX_NAME.env"
-      export ZOG_RENDERER=dxmt; set_renderer
-    fi
     # Electron/WebView2: guarda as flags no perfil do programa para as próximas aberturas
     if [[ "$FLAGS" == *electron* ]]; then
       grep -q '^ZOG_ARGS=' "$PROFILES/app-$PREFIX_NAME.env" 2>/dev/null || \
@@ -169,7 +178,18 @@ case "$cmd" in
     echo "abrindo ${C_NOME:-$NAME} na garrafa \"$PREFIX_NAME\"..."
     case "$EXT" in
       bat|cmd) wine_run 0 cmd /c "$FILE" ;;
-      *)       wine_run 0 "$FILE" ${=ZOG_ARGS:-} ;;
+      *)
+        # Jogo? Tradutor gráfico pelo motor (GameMaker → DXMT, DirectX 9 → DXVK...) e, na + Gaming,
+        # teste da 1ª vez + plano B. Programas comuns só abrem.
+        auto_renderer "app-$PREFIX_NAME" "${FILE:h}" "$FILE"
+        if (( DET_JOGO )); then
+          GAME_PAT="${FILE:t}"; GAME_LOG="$LOG"
+          open_portable()  { wine_run 0 "$FILE" ${=ZOG_ARGS:-}; }
+          close_portable() { kill_prefix "$PREFIX_NAME"; sleep 1; }
+          play_loop "app-$PREFIX_NAME" open_portable close_portable
+        else
+          wine_run 0 "$FILE" ${=ZOG_ARGS:-}
+        fi ;;
     esac ;;
   programas)
     need_data
@@ -228,34 +248,55 @@ case "$cmd" in
 
   # ---------------- Steam e jogos (garrafa "steam") ----------------
   instalar-steam)
-    need_data; need_rosetta; use_prefix steam
-    [[ -f "$STEAM_EXE" ]] && { echo "A Steam já está instalada."; exit 0; }
-    prefix_exists steam || create_prefix steam "Steam" "" || exit 1
-    fetch "$STEAM_SETUP_URL" "$DOWNLOADS/SteamSetup.exe" || { echo "Não consegui baixar a Steam (internet?)."; exit 1; }
-    echo "instalando a Steam de Windows..."
-    newlog install-steam
-    wine_run 900 "$DOWNLOADS/SteamSetup.exe" /S
-    wait_prefix 120
-    [[ -f "$STEAM_EXE" ]] && echo "Steam instalada! Clique em Abrir Steam e entre na sua conta." \
-                          || { echo "A Steam não instalou. Veja: zog.sh log"; exit 1; } ;;
+    need_data; need_rosetta
+    install_steam || exit 1
+    echo "Steam instalada! Clique em Abrir Steam e entre na sua conta." ;;
   steam)
     need_data; need_rosetta; use_prefix steam
     [[ -f "$STEAM_EXE" ]] || { echo "A Steam não está instalada. Use: zog.sh instalar-steam"; exit 1; }
-    apply_display; set_renderer; newlog steam
-    wine_run 0 "$STEAM_EXE" "${STEAM_ARGS[@]}" "$@" ;;
+    steam_running && { echo "A Steam já está aberta."; exit 0; }
+    apply_display; set_renderer
+    steam_launch "$@" ;;
   jogar|peak)
     need_data; use_prefix steam
     [[ "$cmd" == peak ]] && GAME=peak || { GAME="${1:-}"; shift 2>/dev/null; }
+    [[ "$GAME" == <-> ]] && profile_for_appid "$GAME"          # número da Steam → perfil (criado se faltar)
     [[ -f "$PROFILES/$GAME.env" ]] || { echo "Não tem perfil '$GAME'. Perfis: $(cd "$PROFILES" && ls *.env(N) | grep -v '^app-' | sed 's/\.env//' | tr '\n' ' ')"; exit 1; }
     [[ -f "$STEAM_EXE" ]] || { echo "Esse jogo é da Steam, e a Steam não está instalada. Use: zog.sh instalar-steam"; exit 1; }
-    need_rosetta; load_profile "$GAME"; apply_display; set_renderer
+    need_rosetta; load_profile "$GAME"; apply_display
     [[ -n "${STEAM_APPID:-}" ]] || { echo "O perfil $GAME não tem STEAM_APPID."; exit 1; }
-    if steam_running; then
-      echo "Aviso: a Steam já estava aberta, então o jogo usa as configurações com que ela foi aberta."
-      echo "Se o perfil mudou algo (tradutor gráfico, FPS), saia da Steam e rode de novo."
+    # Tradutor pelo motor do jogo (pasta achada pelo appmanifest_<appid>.acf → installdir)
+    if game_dir "$STEAM_APPID"; then
+      echo "jogo: ${GAME_NAME:-$GAME} em $GAME_DIR"
+      auto_renderer "$GAME" "$GAME_DIR"
+      GAME_PAT="common\\$GAME_INSTALLDIR\\"
+    else
+      echo "O jogo ainda não está instalado na Steam (instale por lá; o tradutor é escolhido quando ele estiver instalado)."
+      set_renderer; GAME_PAT=""
     fi
-    newlog "$GAME"
-    wine_run 0 "$STEAM_EXE" "${STEAM_ARGS[@]}" -applaunch "$STEAM_APPID" "$@" ;;
+    open_steam_game()  { steam_launch -applaunch "$STEAM_APPID" "$@"; }
+    close_steam_game() { kill_game; }
+    if [[ -n "$GAME_PAT" ]]; then play_loop "$GAME" open_steam_game close_steam_game
+    else open_steam_game; fi ;;
+  biblioteca) need_data; use_prefix steam; steam_library_list ;;
+  tradutor-jogo)
+    # zog.sh tradutor-jogo <perfil> [auto|d3dmetal|dxmt|dxvk|wined3d] — auto: escolhe e testa de novo ao jogar
+    GAME="${1:?uso: zog.sh tradutor-jogo <perfil> [auto|d3dmetal|dxmt|dxvk|wined3d]}"
+    f="$PROFILES/$GAME.env"; [[ -f "$f" ]] || { echo "Não tem perfil '$GAME'."; exit 1; }
+    case "${2:-}" in
+      "") r="$(profile_renderer "$GAME")"; print -r -- "${r:-auto}" ;;
+      auto) grep -vE '^(ZOG_RENDERER|ZOG_RENDERER_TESTADO)=' "$f" > "$f.tmp"; mv "$f.tmp" "$f"
+            echo "$GAME: tradutor automático — escolhido e testado na próxima vez que o jogo abrir" ;;
+      d3dmetal|dxmt|dxvk|wined3d)
+            profile_set_renderer "$GAME" "$2" "escolhido no app em $(date +%d/%m/%Y)" testado
+            echo "$GAME: tradutor gráfico = $(renderer_label $2) (vale na próxima vez que o jogo abrir)" ;;
+      *) echo "Tradutor desconhecido: $2"; exit 1 ;;
+    esac ;;
+  detectar)
+    detect_renderer "${1:?uso: zog.sh detectar <pasta do jogo> [exe]}" "${2:-}"
+    print -r -- "$DET_RENDERER|$DET_MOTIVO|$DET_JOGO" ;;
+  biblioteca-externa) need_data; add_steam_library "${1:?uso: zog.sh biblioteca-externa <pasta>}" ;;
+  edicao) print -r -- "$EDITION" ;;
   jogos)
     for f in "$PROFILES"/*.env(N); do
       n=$(basename "$f" .env); [[ "$n" == app-* ]] && continue

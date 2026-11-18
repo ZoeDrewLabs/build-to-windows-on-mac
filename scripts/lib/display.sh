@@ -51,5 +51,5 @@ apply_display() {
   "$WINE" reg add "HKCU\\Control Panel\\Desktop" /v LogPixels /t REG_DWORD /d "$dpi" /f >/dev/null 2>&1
   "$WINE" reg add "HKLM\\System\\CurrentControlSet\\Hardware Profiles\\Current\\Software\\Fonts" /v LogPixels /t REG_DWORD /d "$dpi" /f >/dev/null 2>&1
   print -r -- "$state" > "$cache"
-  steam_running && echo "(a Steam já aberta só pega a nova escala quando for reaberta)"
+  [[ "$PREFIX_NAME" == steam ]] && steam_running && echo "(a Steam já aberta só pega a nova escala quando for reaberta)"
 }

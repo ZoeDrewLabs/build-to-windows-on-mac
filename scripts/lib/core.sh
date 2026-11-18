@@ -132,7 +132,16 @@ fetch() {   # baixa $1 para $2 (com retomada) se ainda não existir
   curl -fL --retry 3 -C - -o "$2.part" "$1" 2>/dev/null && mv "$2.part" "$2"
 }
 
-steam_running() { pgrep -qf 'Steam[/\\]steam\.exe|steamwebhelper\.exe'; }
+# O wineserver de cada garrafa tem um socket em /tmp/.wine-<uid>/server-<disco>-<inode da garrafa>/
+prefix_server_up() {
+  local d; d=$(stat -f '%d %i' "${1:-$BOTTLE}" 2>/dev/null | awk '{printf "server-%x-%x", $1, $2}')
+  [[ -n "$d" && -S "/tmp/.wine-$UID/$d/socket" ]]
+}
+# Steam aberta NESTA garrafa (não confunde com a Steam de outra pasta de dados)
+steam_running() {
+  if [[ "${ZOG_TESTE_SECO:-0}" == 1 ]]; then [[ -f "$BOTTLE/.zog/steam-tradutor" ]]; return; fi
+  prefix_server_up "$BOTTLE" && pgrep -qf 'Steam[/\\]steam\.exe|steamwebhelper\.exe'
+}
 
 # Tradutor gráfico do DirectX. Padrão: d3dmetal (Apple). Por programa no perfil:
 #   ZOG_RENDERER=dxmt | dxvk | wined3d

@@ -28,6 +28,26 @@ struct WinComponent: Identifiable, Hashable {
     let installed: Bool
 }
 
+/// Edição do app: "geral" (Build to Windows on Mac) ou "gaming" (+ Gaming). Vem do Info.plist (app/build.sh).
+enum Edition {
+    static let id = (Bundle.main.object(forInfoDictionaryKey: "ZOGEdition") as? String) ?? "geral"
+    static var isGaming: Bool { id == "gaming" }
+    static var name: String { isGaming ? "Build to Windows on Mac + Gaming" : "Build to Windows on Mac" }
+    static var tagline: String {
+        isGaming ? "Jogos de Windows no Mac · Steam pronta · o tradutor certo para cada jogo"
+                 : "Programas e jogos de Windows no Mac · sem máquina virtual"
+    }
+}
+
+/// Jogo instalado na biblioteca da Steam (appmanifest_<appid>.acf)
+struct LibraryGame: Identifiable, Hashable {
+    var id: String { appID }
+    let appID: String
+    let name: String
+    let profile: String     // perfil em profiles/ (vazio = criado ao jogar)
+    let renderer: String    // tradutor gravado no perfil (vazio = escolhido ao jogar)
+}
+
 struct Game: Identifiable, Hashable {
     let id: String          // nome do perfil (arquivo profiles/<id>.env)
     let title: String
@@ -67,6 +87,9 @@ final class Runner: ObservableObject {
     @Published var progressValue = 0.0
     var currentProcess: Process?
     @Published var hasSteam = false
+    @Published var library: [LibraryGame] = []
+    let overlay = LoadingOverlay()
+    private var lastNotice = ""          // última linha AVISO-… do zog.sh
     @Published var programs: [WinProgram] = []
     @Published var components: [WinComponent] = []
     @Published var folderAvailable = true
@@ -110,7 +133,7 @@ final class Runner: ObservableObject {
             let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
             guard latest.compare(current, options: .numeric) == .orderedDescending else { return }
             Task { @MainActor in
-                self.updateInfo = "Versão nova do Build to Windows on Mac: \(latest) (você tem a \(current))."
+                self.updateInfo = "Versão nova do \(Edition.name): \(latest) (você tem a \(current))."
                 self.updateURL = page
             }
         }.resume()
@@ -171,6 +194,33 @@ final class Runner: ObservableObject {
             let saved = fm.fileExists(atPath: (profiles as NSString).appendingPathComponent("\(id).config.reg"))
             return Game(id: id, title: title, appID: appID, hasSavedConfig: saved)
         }
+        // + Gaming: jogos instalados na Steam (lê os appmanifest; não abre o Wine)
+        if Edition.isGaming && hasSteam && !busy {
+            library = quick(["biblioteca"]).split(separator: "\n").compactMap { line in
+                let f = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+                return f.count >= 4 ? LibraryGame(appID: f[0], name: f[1], profile: f[2], renderer: f[3]) : nil
+            }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+    }
+
+    /// Jogos dos perfis que não estão na biblioteca da Steam (ex.: ainda não instalados)
+    var profileOnlyGames: [Game] {
+        games.filter { g in !library.contains { $0.appID == g.appID } }
+    }
+
+    func rendererLabel(_ id: String) -> String {
+        ["d3dmetal": "D3DMetal", "dxmt": "DXMT", "dxvk": "DXVK", "wined3d": "WineD3D"][id] ?? id
+    }
+
+    /// Joga um jogo da Steam (por perfil ou número da loja). A + Gaming testa o tradutor na 1ª vez.
+    func play(_ idOrAppID: String) { run(["jogar", idOrAppID]) }
+
+    func chooseSteamLibrary() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
+        panel.prompt = "Usar para jogos"
+        panel.message = "Onde guardar os jogos da Steam? (um SSD externo é ótimo: jogos ocupam muito espaço)"
+        if panel.runModal() == .OK, let url = panel.url { run(["biblioteca-externa", url.path]) }
     }
 
     /// Programas instalados = atalhos do Menu Iniciar dentro da garrafa (sem desinstaladores etc.).
@@ -218,6 +268,7 @@ final class Runner: ObservableObject {
         p.arguments = [script] + args
         var env = ProcessInfo.processInfo.environment
         env["ZOG_HOME"] = dataFolder
+        env["ZOG_PERGUNTAR"] = "1"           // o zog.sh pede confirmação (código 22) antes de reabrir a Steam
         if showFPS { env["ZOG_HUD"] = "1" }
         extraEnv.forEach { env[$0] = $1 }
         p.environment = env
@@ -236,6 +287,17 @@ final class Runner: ObservableObject {
                 pipe.fileHandleForReading.readabilityHandler = nil
                 self.currentProcess = nil
                 self.progressText = ""
+                self.overlay.hide()
+                if proc.terminationStatus == 22, self.lastNotice.hasPrefix("AVISO-REABRIR|") {
+                    self.busy = false
+                    let f = self.lastNotice.split(separator: "|").map(String.init)
+                    self.lastNotice = ""
+                    if self.confirmSteamRestart(from: f.count > 1 ? f[1] : "?", to: f.count > 2 ? f[2] : "?") {
+                        var e = extraEnv; e["ZOG_REABRIR"] = "1"
+                        self.run(args, extraEnv: e, then: then)
+                    } else { self.log += "(a Steam continua aberta como estava)\n" }
+                    return
+                }
                 if proc.terminationReason == .uncaughtSignal || proc.terminationStatus == 143 {
                     self.log += "(cancelado)\n"
                 } else if proc.terminationStatus == 30 {
@@ -279,15 +341,37 @@ final class Runner: ObservableObject {
         return line.map { String($0.dropFirst(13).prefix { $0 != " " && $0 != "#" }) } ?? "d3dmetal"
     }
 
+    /// Pela Steam o tradutor vale para a Steam inteira: para trocar, ela precisa ser reaberta.
+    func confirmSteamRestart(from: String, to: String) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Reabrir a Steam com o tradutor \(to)?"
+        alert.informativeText = "A Steam está aberta com o tradutor gráfico \(from), mas este jogo funciona com o \(to). Pela Steam, o tradutor vale para a Steam inteira — então o app fecha a Steam e abre de novo com o \(to), já abrindo o jogo. Nenhum jogo está aberto agora."
+        alert.addButton(withTitle: "Reabrir e jogar")
+        alert.addButton(withTitle: "Cancelar")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     /// Separa as linhas de progresso ("PROGRESSO|etapa|total|texto") do resto do log.
     func consume(_ chunk: String) {
         for line in chunk.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("TELA-TESTE|") {
+                // Teste de tradutores da 1ª vez: tela de carregamento por cima do jogo enquanto ele é testado
+                let f = line.split(separator: "|", maxSplits: 2).map(String.init)
+                if f.count >= 2, f[1] == "on" { overlay.show(f.count > 2 ? f[2] : "Preparando o jogo…") { [weak self] in self?.overlay.hide() } }
+                else { overlay.hide() }
+                continue
+            }
+            if line.hasPrefix("AVISO-") { lastNotice = String(line); continue }
             if line.hasPrefix("PROGRESSO|") {
                 let f = line.split(separator: "|", maxSplits: 3).map(String.init)
                 if f.count == 4, let i = Double(f[1]), let n = Double(f[2]) {
                     progressValue = n > 0 ? min(i / n, 1) : 0
                     progressText = f[3]
-                    log += "• \(f[3])\n"
+                    overlay.update(f[3], value: progressValue)
+                    if !log.hasSuffix("• \(f[3])\n") && !f[3].hasPrefix("Conferindo") && !f[3].hasPrefix("Preparando") {
+                        log += "• \(f[3])\n"
+                    }
                 }
             } else if !line.isEmpty {
                 log += line + "\n"
@@ -450,6 +534,67 @@ final class Runner: ObservableObject {
 }
 
 
+// MARK: - Tela de carregamento do teste de tradutores
+
+/// Janela que cobre a tela enquanto o jogo é testado com cada tradutor gráfico (1ª vez que ele abre).
+/// O Wine não deixa esconder a janela do jogo; então a tela de carregamento fica por cima dela.
+@MainActor
+final class LoadingOverlay: ObservableObject {
+    @Published var text = ""
+    @Published var value = 0.0
+    private var window: NSWindow?
+    private var onSkip: (() -> Void)?
+    private var safety: DispatchWorkItem?
+
+    func show(_ text: String, onSkip: @escaping () -> Void) {
+        self.text = text; self.onSkip = onSkip
+        if window == nil {
+            let frame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            let w = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            w.level = .screenSaver
+            w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+            w.isOpaque = true
+            w.backgroundColor = .black
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: LoadingOverlayView(model: self))
+            window = w
+        }
+        window?.orderFrontRegardless()
+        // segurança: nunca deixar a tela coberta por mais de 3 minutos
+        safety?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.hide() }
+        safety = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 180, execute: item)
+    }
+    func update(_ text: String, value: Double) {
+        guard window?.isVisible == true else { return }
+        if text.hasPrefix("Preparando") { self.text = text }
+        self.value = value
+    }
+    func hide() { safety?.cancel(); window?.orderOut(nil) }
+    func skip() { onSkip?() }
+}
+
+struct LoadingOverlayView: View {
+    @ObservedObject var model: LoadingOverlay
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.10, green: 0.06, blue: 0.22), Color(red: 0.02, green: 0.20, blue: 0.16)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: 18) {
+                Image(systemName: "gamecontroller.fill").font(.system(size: 64)).foregroundStyle(.white)
+                Text("Preparando o jogo").font(.system(size: 34, weight: .bold)).foregroundStyle(.white)
+                Text(model.text).font(.title3).foregroundStyle(.white.opacity(0.85))
+                ProgressView(value: model.value).frame(width: 360).tint(.green)
+                Text("Na primeira vez, o app testa os tradutores gráficos com o jogo e fica com o melhor que funcionar. Das próximas vezes ele abre direto.")
+                    .font(.callout).foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center).frame(width: 520)
+                Button("Mostrar o jogo agora") { model.skip() }.controlSize(.large).padding(.top, 8)
+            }
+        }
+    }
+}
+
 // MARK: - Apoio (o app é gratuito)
 
 enum Support {
@@ -476,7 +621,7 @@ struct SupportView: View {
         VStack(spacing: 14) {
             Text("☕️").font(.system(size: 44))
             Text("Este aplicativo é gratuito").font(.title2.bold())
-            Text("Considere me pagar um café! Qualquer valor ajuda a manter o Build to Windows on Mac funcionando com mais programas e jogos.")
+            Text("Considere me pagar um café! Qualquer valor ajuda a manter o \(Edition.name) funcionando com mais programas e jogos.")
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .top, spacing: 24) {
                 VStack(spacing: 6) {
@@ -609,8 +754,8 @@ struct ContentView: View {
     var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Build to Windows on Mac").font(.largeTitle.bold())
-                Text("Programas e jogos de Windows no Mac · sem máquina virtual").foregroundStyle(.secondary)
+                Text(Edition.name).font(Edition.isGaming ? .title.bold() : .largeTitle.bold())
+                Text(Edition.tagline).foregroundStyle(.secondary)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
@@ -631,7 +776,7 @@ struct ContentView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Primeira vez neste Mac").font(.headline)
-                Text("Vai instalar a tradução que vem dentro do app — o motor do Wine e os tradutores gráficos (D3DMetal da Apple e DXMT) — e criar um \"Windows\" vazio para os seus programas. Funciona sem internet; com internet, o app procura versões mais novas. Depois é só arrastar um instalador .exe ou .msi, ou instalar a Steam se quiser jogar. Precisa de um Mac com chip Apple (M1 ou mais novo). Se faltar o Rosetta 2 (tradutor da Apple), o app instala direto da Apple antes.")
+                Text(Edition.isGaming ? "Vai instalar a tradução que vem dentro do app — o motor do Wine e os tradutores gráficos (D3DMetal da Apple, DXMT e DXVK) — e já instalar a Steam de Windows sozinha (pelo instalador oficial, baixado da Valve na hora: precisa de internet). A escala da tela (Retina) é ajustada para este Mac. Depois é só abrir a Steam, entrar na sua conta e jogar: o app escolhe o tradutor gráfico certo para cada jogo. Precisa de um Mac com chip Apple (M1 ou mais novo). Se faltar o Rosetta 2, o app instala direto da Apple antes." : "Vai instalar a tradução que vem dentro do app — o motor do Wine e os tradutores gráficos (D3DMetal da Apple e DXMT) — e criar um \"Windows\" vazio para os seus programas. Funciona sem internet; com internet, o app procura versões mais novas. Depois é só arrastar um instalador .exe ou .msi, ou instalar a Steam se quiser jogar. Precisa de um Mac com chip Apple (M1 ou mais novo). Se faltar o Rosetta 2 (tradutor da Apple), o app instala direto da Apple antes.")
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button("Instalar") { r.ensureRosetta { r.run(["setup"]) } }
@@ -644,6 +789,15 @@ struct ContentView: View {
 
     var mainControls: some View {
         VStack(alignment: .leading, spacing: 12) {
+            updateBanner
+            toolbar
+            if Edition.isGaming { gamesBox; programsBox; bottlesBox }   // + Gaming: jogos primeiro
+            else { programsBox; bottlesBox; gamesBox }
+        }
+    }
+
+    var updateBanner: some View {
+        Group {
             if !r.updateInfo.isEmpty && r.isSetUp {
                 HStack {
                     Image(systemName: "arrow.down.circle.fill").foregroundStyle(.blue)
@@ -656,6 +810,11 @@ struct ContentView: View {
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.1)))
             }
+        }
+    }
+
+    var toolbar: some View {
+        Group {
             HStack {
                 Button { r.run(["kill"]) } label: { Label("Fechar tudo do Windows", systemImage: "stop.fill") }
                 Toggle("Mostrar FPS", isOn: $r.showFPS).toggleStyle(.checkbox).padding(.leading, 8)
@@ -663,6 +822,11 @@ struct ContentView: View {
                 Button { r.copyLog() } label: { Label("Copiar log", systemImage: "doc.on.clipboard") }
             }.disabled(r.busy)
 
+        }
+    }
+
+    var programsBox: some View {
+        Group {
             GroupBox("Programas de Windows") {
                 VStack(alignment: .leading, spacing: 8) {
                     DropZone()
@@ -703,6 +867,11 @@ struct ContentView: View {
                 }.disabled(r.busy).padding(4)
             }
 
+        }
+    }
+
+    var bottlesBox: some View {
+        Group {
             GroupBox("Garrafas (cada programa isolado)") {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Cada programa fica na própria garrafa — um Windows separado, com registro e DLLs só dele. Assim um programa de empresa nunca quebra outro. Os componentes (Visual C++, .NET, fontes) são instalados por garrafa, sozinhos quando o app detecta que o programa precisa.")
@@ -726,18 +895,22 @@ struct ContentView: View {
                 }.disabled(r.busy).padding(4)
             }
 
-            GroupBox("Jogos (Steam)") {
-                if r.hasSteam { steamSection } else {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Quer jogar jogos de Windows?").font(.headline)
-                            Text("Instale a Steam de Windows (opcional, precisa de internet).")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("Instalar Steam") { r.run(["instalar-steam"]) }.disabled(r.busy)
-                    }.padding(4)
-                }
+        }
+    }
+
+    var gamesBox: some View {
+        GroupBox(Edition.isGaming ? "Jogos" : "Jogos (Steam)") {
+            if r.hasSteam { steamSection } else {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Edition.isGaming ? "A Steam ainda não está instalada" : "Quer jogar jogos de Windows?").font(.headline)
+                        Text(Edition.isGaming ? "Instala sozinha pelo instalador oficial da Valve (precisa de internet)."
+                                              : "Instale a Steam de Windows (opcional, precisa de internet).")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Instalar Steam") { r.run(["instalar-steam"]) }.disabled(r.busy)
+                }.padding(4)
             }
         }
     }
@@ -748,8 +921,34 @@ struct ContentView: View {
                 Button { r.run(["steam"]) } label: { Label("Abrir Steam", systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent)
                 Spacer()
+                if Edition.isGaming {
+                    Button { r.chooseSteamLibrary() } label: { Label("Jogos no SSD externo…", systemImage: "externaldrive") }
+                        .controlSize(.small).help("Cria uma biblioteca da Steam numa pasta à sua escolha (ex.: SSD externo)")
+                }
             }
-            ForEach(r.games) { g in
+            if Edition.isGaming {
+                if r.library.isEmpty {
+                    Text("Nenhum jogo instalado ainda. Abra a Steam, entre na sua conta e instale um jogo — ele aparece aqui.")
+                        .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ForEach(r.library) { g in
+                    HStack {
+                        Image(systemName: "gamecontroller")
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(g.name).font(.headline)
+                            Text("Steam \(g.appID) · " + (g.renderer.isEmpty ? "tradutor escolhido e testado ao jogar"
+                                                                           : "tradutor \(r.rendererLabel(g.renderer))"))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if !g.profile.isEmpty { rendererMenu(profile: g.profile, current: g.renderer) }
+                        Button("Jogar") { r.play(g.appID) }.buttonStyle(.borderedProminent)
+                    }
+                    .padding(.vertical, 2)
+                    Divider()
+                }
+            }
+            ForEach(Edition.isGaming ? r.profileOnlyGames : r.games) { g in
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(g.title).font(.headline)
@@ -760,7 +959,7 @@ struct ContentView: View {
                     Button("Salvar config") { r.run(["salvar", g.id]) }.controlSize(.small)
                     Button("Restaurar") { r.run(["restaurar", g.id]) }.controlSize(.small)
                         .disabled(!g.hasSavedConfig)
-                    Button("Jogar") { r.run(["jogar", g.id]) }.buttonStyle(.borderedProminent)
+                    Button("Jogar") { r.play(g.id) }.buttonStyle(.borderedProminent)
                 }
                 .padding(.vertical, 2)
                 Divider()
@@ -776,6 +975,18 @@ struct ContentView: View {
                 Spacer()
             }
         }.disabled(r.busy).padding(4)
+    }
+
+    /// Tradutor gráfico de um jogo: automático (testado ao jogar) ou escolhido à mão
+    func rendererMenu(profile: String, current: String) -> some View {
+        Menu {
+            Text("O app escolhe e testa sozinho. Se o jogo abrir com tela preta ou erro, troque aqui:")
+            Button("Automático — testar de novo na próxima vez") { r.run(["tradutor-jogo", profile, "auto"]) }
+            ForEach(Runner.renderers, id: \.0) { rid, label in
+                Button((current == rid ? "✓ " : "") + label) { r.run(["tradutor-jogo", profile, rid]) }
+            }
+        } label: { Image(systemName: "display") }
+        .menuStyle(.borderlessButton).fixedSize().help("Tradutor gráfico deste jogo")
     }
 
     var logBox: some View {
@@ -812,13 +1023,13 @@ struct BuildToWindowsOnMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var runner = Runner()
     var body: some Scene {
-        WindowGroup("Build to Windows on Mac", id: "main") {
+        WindowGroup(Edition.name, id: "main") {
             ContentView().environmentObject(runner)
                 .onAppear { delegate.runner = runner }
         }
         .windowResizability(.contentMinSize)
 
-        MenuBarExtra("Build to Windows on Mac", systemImage: "macwindow") {
+        MenuBarExtra(Edition.name, systemImage: Edition.isGaming ? "gamecontroller" : "macwindow") {
             MenuBarContent().environmentObject(runner)
         }
     }
@@ -829,7 +1040,7 @@ struct MenuBarContent: View {
     @EnvironmentObject var r: Runner
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Button("Abrir Build to Windows on Mac") { showMain() }
+        Button("Abrir \(Edition.name)") { showMain() }
         Divider()
         if r.isSetUp {
             Button("Abrir programa de Windows…") { NSApp.activate(ignoringOtherApps: true); r.pickWindowsFile() }
@@ -841,9 +1052,14 @@ struct MenuBarContent: View {
                 }
             }
             if r.hasSteam { Button("Abrir Steam") { r.run(["steam"]) } }
-            if r.hasSteam && !r.games.isEmpty {
+            if r.hasSteam && !(r.games.isEmpty && r.library.isEmpty) {
                 Menu("Jogar") {
-                    ForEach(r.games) { g in Button(g.title) { r.run(["jogar", g.id]) } }
+                    if Edition.isGaming {
+                        ForEach(r.library) { g in Button(g.name) { r.play(g.appID) } }
+                        ForEach(r.profileOnlyGames) { g in Button(g.title) { r.play(g.id) } }
+                    } else {
+                        ForEach(r.games) { g in Button(g.title) { r.run(["jogar", g.id]) } }
+                    }
                 }
             }
             Button("Fechar tudo do Windows") { r.run(["kill"]) }
@@ -856,7 +1072,7 @@ struct MenuBarContent: View {
     }
     func showMain() {
         NSApp.activate(ignoringOtherApps: true)
-        if let w = NSApp.windows.first(where: { $0.title == "Build to Windows on Mac" }) { w.makeKeyAndOrderFront(nil) }
+        if let w = NSApp.windows.first(where: { $0.title == Edition.name }) { w.makeKeyAndOrderFront(nil) }
         else { openWindow(id: "main") }
     }
 }
