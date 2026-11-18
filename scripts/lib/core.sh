@@ -53,6 +53,15 @@ export ROSETTA_ADVERTISE_AVX=1                  # Unity e outros exigem AVX; o R
 # Não criar atalhos/associações do Linux; o app cuida da lista de programas.
 export WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
 [[ "${ZOG_HUD:-0}" == 1 ]] && export MTL_HUD_ENABLED=1
+# Nome no Dock: DESLIGADO. Para um processo fora de um .app, o Dock e o menu usam o nome do ARQUIVO,
+# que precisa ser "wine" (o Wine exige), e os processos filhos sempre rodam por …/bin/wine (fora de
+# qualquer .app). tools/docknome.dylib registra o nome no LaunchServices, mas o Dock não usa (testado
+# em 18/11/2026). Só resolve compilando o Wine com uma mudança no winemac. Ligar para testes: ZOG_DOCK_ON=1
+if [[ -f "$TOOLS/docknome.dylib" && "${ZOG_DOCK_ON:-0}" == 1 ]]; then
+  export DYLD_INSERT_LIBRARIES="$TOOLS/docknome.dylib"
+  if [[ -f "$PROFILES/nomes-dock.tsv" ]]; then export ZOG_DOCK_MAP="$PROFILES/nomes-dock.tsv"
+  elif [[ -f "$RES/profiles/nomes-dock.tsv" ]]; then export ZOG_DOCK_MAP="$RES/profiles/nomes-dock.tsv"; fi
+fi
 
 # ---------- utilidades ----------
 need_data() {

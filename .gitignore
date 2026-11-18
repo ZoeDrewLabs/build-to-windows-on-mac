@@ -19,3 +19,4 @@ profiles/*.config.reg
 Prefixes/
 tools/peinspect
 profiles/app-*.env
+tools/docknome.dylib

@@ -1,0 +1,7 @@
+# Nome que aparece no Dock, no Cmd+Tab e na barra de menus para cada .exe (separado por TAB).
+# Sem linha aqui, o app usa a pasta (Steam\steam.exe → Steam) ou o nome do .exe (PEAK.exe → PEAK).
+steamwebhelper.exe	Steam
+steam.exe	Steam
+gameoverlayui64.exe	Steam
+gameoverlayui.exe	Steam
+notepad.exe	Bloco de Notas

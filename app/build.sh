@@ -17,13 +17,17 @@ swiftc -parse-as-library -O -target arm64-apple-macos14 "$SRC/main.swift" "$SRC/
 swiftc -parse-as-library -O -target arm64-apple-macos14 "$SRC/PEInspector.swift" "$SRC/peinspect-cli.swift" \
   -o "$R/tools/peinspect"
 cp "$R/tools/peinspect" "$ROOT/tools/peinspect"        # versão de desenvolvimento, usada pelo zog.sh do projeto
+# nome no Dock (Intel e chip Apple: o Wine roda como Intel pelo Rosetta)
+clang -dynamiclib -arch x86_64 -arch arm64 -mmacosx-version-min=12.0 -fobjc-arc -O2 "$SRC/docknome.m" \
+  -o "$R/tools/docknome.dylib" -framework Foundation -framework CoreServices
+cp "$R/tools/docknome.dylib" "$ROOT/tools/docknome.dylib"
 
 # lançador + módulos (PrefixManager, Provisioner…) e ferramentas
 cp "$ROOT/scripts/zog.sh" "$R/scripts/"; cp "$ROOT"/scripts/lib/*.sh "$R/scripts/lib/"
 cp "$ROOT/tools/winetricks" "$ROOT/tools/cabextract" "$R/tools/"
 chmod +x "$R/scripts/zog.sh" "$R/tools/"*
 # perfis que vão junto (só o .env: as configurações salvas são de cada Mac)
-cp "$ROOT"/profiles/catalogo.tsv "$R/profiles/"
+cp "$ROOT"/profiles/catalogo.tsv "$ROOT"/profiles/nomes-dock.tsv "$R/profiles/"
 for f in "$ROOT"/profiles/*.env(N); do [[ "${f:t}" == app-* ]] || cp "$f" "$R/profiles/"; done   # perfis de jogos; os app-* são de cada Mac
 
 # Pacote embutido (instala sem internet): motor do Wine e tradutores gráficos. A Steam é opcional (baixada no app).
