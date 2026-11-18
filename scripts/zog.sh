@@ -365,6 +365,8 @@ EOF
     cur_t="$( [[ -f "$FW/.zog-version" ]] && <"$FW/.zog-version" || echo "$TEMPLATE_NAME")"
     latest=$(latest_versions) || exit 0
     new_e="${latest%%|*}"; new_t="${latest#*|}"
+    # versão que já foi testada e falhou neste Mac: não oferecer de novo
+    [[ -f "$ZOG/engine/ignorar" && "$(<"$ZOG/engine/ignorar")" == "$latest" ]] && { echo "Tudo em dia."; exit 0; }
     msg=()
     [[ -n "$new_e" && "$new_e" != "$cur_e" ]] && msg+=("motor do Wine: $cur_e → $new_e")
     [[ -n "$new_t" && "$new_t" != "$cur_t" ]] && msg+=("tradutores gráficos: $cur_t → $new_t")
@@ -400,7 +402,23 @@ EOF
       print -r -- "$new_t" > "$FW/.zog-version"; rm -rf "$ZOG/cache/x" "$ZOG/cache/$new_t.tar.xz"
       echo "tradutores novos: $new_t (os anteriores ficam em engine/frameworks-anterior)"
     fi
-    echo "Pronto. Se algo parou de funcionar: zog.sh voltar" ;;
+    # Teste de verdade antes de dar como pronto: liga o "Windows" com o tradutor gráfico
+    # e roda um comando. Se falhar, volta sozinho para a versão anterior.
+    echo "testando a versão nova..."
+    FW="$ZOG/engine/frameworks"; set_renderer >/dev/null
+    export DYLD_FALLBACK_LIBRARY_PATH="$FW:$FW/moltenvkcx:$FW/GStreamer.framework/Versions/Current/lib:/usr/lib"
+    "$WINE_DIR/bin/wineserver" -k 2>/dev/null
+    out=$("$WINE" cmd /c echo zog-ok 2>&1)
+    "$WINE_DIR/bin/wineserver" -k 2>/dev/null
+    if [[ "$out" == *zog-ok* && "$out" != *"failed to start wineboot"* ]]; then
+      echo "Pronto, a versão nova funcionou. Se algo parar de funcionar: zog.sh voltar"
+    else
+      print -r -- "$latest" > "$ZOG/engine/ignorar"
+      "$0" voltar >/dev/null
+      echo "A versão nova NÃO funcionou neste Mac — voltei sozinho para a anterior, que está funcionando."
+      echo "Ela não vai ser oferecida de novo; o app avisa quando sair outra."
+      exit 1
+    fi ;;
   voltar)
     # desfaz a última atualização: motor s10 testado + tradutores anteriores
     need_data

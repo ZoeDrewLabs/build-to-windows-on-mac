@@ -6,7 +6,7 @@ SRC="${0:A:h}"
 ROOT="${SRC:h}"
 OUT="$ROOT/dist"
 APP="$OUT/Build to Windows on Mac.app"
-VERSION="1.0"
+VERSION="1.0.1"
 
 rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/scripts" "$APP/Contents/Resources/profiles"
 
