@@ -4,6 +4,7 @@
 #
 # Uso:
 #   zog.sh setup                       instala a tradução num Mac novo (motor do Wine e tradutores gráficos)
+#   zog.sh rosetta | instalar-rosetta  confere / instala o Rosetta 2 direto da Apple
 #   zog.sh abrir <arquivo> [garrafa]   instala/roda um programa de Windows (.exe .msi .bat) na garrafa dele
 #   zog.sh programas                   programas instalados, de todas as garrafas: garrafa|nome|atalho
 #   zog.sh abrir-programa <garrafa> <nome>   abre um programa instalado
@@ -186,6 +187,8 @@ case "$cmd" in
     echo "abrindo $NAME..."
     wine_run 0 start /unix "$LNK" ${=ZOG_ARGS:-} ;;
   garrafas)       need_data; list_prefixes ;;
+  rosetta)        rosetta_ok && echo sim || echo nao ;;
+  instalar-rosetta) install_rosetta ;;
   tradutor)
     # zog.sh tradutor <garrafa> [d3dmetal|dxmt|dxvk|wined3d] — mostra ou troca o tradutor gráfico do programa
     need_data; use_prefix "${1:?uso: zog.sh tradutor <garrafa> [d3dmetal|dxmt|dxvk|wined3d]}"

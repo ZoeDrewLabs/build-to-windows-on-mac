@@ -79,13 +79,29 @@ seed_microsoft() {
   return 0
 }
 
+# Rosetta 2: o motor do Wine é x86_64 e roda pelo tradutor da Apple. Ele NÃO pode ir dentro do app
+# (componente do macOS; só a Apple distribui), mas o app instala direto da Apple com um clique.
+# ZOG_SIMULAR_SEM_ROSETTA=1 finge que falta (para testar o fluxo do app num Mac que já tem).
+rosetta_ok() { [[ "${ZOG_SIMULAR_SEM_ROSETTA:-0}" != 1 ]] && arch -x86_64 /usr/bin/true 2>/dev/null; }
+
 need_rosetta() {
   [[ "$(uname -m)" == arm64 ]] || { echo "Este app é para Macs com chip Apple (M1 ou mais novo)."; exit 1; }
-  if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
-    echo "Falta o Rosetta 2 (tradutor da Apple). Rode no Terminal e digite a senha do Mac:"
-    echo "  softwareupdate --install-rosetta --agree-to-license"
-    exit 1
+  if ! rosetta_ok; then
+    echo "PRECISA-ROSETTA|Falta o Rosetta 2, o tradutor de programas Intel da Apple."
+    echo "No app, clique em Instalar: ele baixa o Rosetta direto da Apple. Pelo Terminal: zog.sh instalar-rosetta"
+    exit 30
   fi
+}
+
+# Instala o Rosetta pela ferramenta oficial da Apple (softwareupdate). Quem chama já mostrou a licença.
+install_rosetta() {
+  rosetta_ok && { echo "O Rosetta 2 já está instalado."; return 0; }
+  echo "baixando e instalando o Rosetta 2 direto da Apple..."
+  /usr/sbin/softwareupdate --install-rosetta --agree-to-license 2>&1 | grep -vE '^\s*$|agreetolicense|CTRL-C'
+  if arch -x86_64 /usr/bin/true 2>/dev/null; then echo "Rosetta 2 instalado."; return 0; fi
+  echo "O Rosetta não instalou. Confira a internet e tente de novo, ou rode no Terminal:"
+  echo "  softwareupdate --install-rosetta --agree-to-license"
+  return 1
 }
 
 LOG="/dev/null"

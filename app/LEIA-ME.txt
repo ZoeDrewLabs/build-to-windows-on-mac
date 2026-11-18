@@ -5,7 +5,8 @@ e o D3DMetal da Apple traduz os gráficos (DirectX → Metal).
 PRECISA DE
 - Mac com chip Apple (M1, M2, M3, M4 ou mais novo)
 - macOS 14 Sonoma ou mais novo
-- Rosetta 2 (o app avisa se faltar)
+- Rosetta 2, o tradutor da Apple: se faltar, o app instala sozinho com um clique, direto da Apple
+  (ele é parte do macOS e só a Apple pode distribuí-lo, por isso não vem dentro do app)
 - ~2 GB livres para a tradução + ~300 MB por programa (~1,2 GB se ele usar .NET)
 
 COMO INSTALAR

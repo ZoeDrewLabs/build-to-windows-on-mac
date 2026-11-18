@@ -27,7 +27,7 @@ Arraste um `.exe` ou `.msi` para o app e ele abre direto no macOS. Não tem um W
 
 - Mac com chip Apple (M1, M2, M3, M4 ou mais novo)
 - macOS 14 Sonoma ou mais novo
-- Rosetta 2 (o app avisa se faltar e mostra o comando)
+- Rosetta 2 — se faltar, o app instala com um clique, direto da Apple (ele é parte do macOS e só a Apple pode distribuí-lo, por isso não vem dentro do app)
 
 ## Instalação
 

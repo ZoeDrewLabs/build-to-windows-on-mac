@@ -238,6 +238,11 @@ final class Runner: ObservableObject {
                 self.progressText = ""
                 if proc.terminationReason == .uncaughtSignal || proc.terminationStatus == 143 {
                     self.log += "(cancelado)\n"
+                } else if proc.terminationStatus == 30 {
+                    self.busy = false
+                    self.refresh()
+                    self.ensureRosetta { self.run(args, extraEnv: extraEnv, then: then) }
+                    return
                 } else if proc.terminationStatus != 0 {
                     self.log += "(terminou com código \(proc.terminationStatus))\n"
                 }
@@ -287,6 +292,34 @@ final class Runner: ObservableObject {
             } else if !line.isEmpty {
                 log += line + "\n"
             }
+        }
+    }
+
+    /// Rosetta 2: o motor do Wine é Intel (x86_64) e roda pelo tradutor da Apple. Ele não pode vir
+    /// dentro do app (é parte do macOS e só a Apple distribui); então o app instala direto da Apple.
+    func ensureRosetta(_ then: @escaping () -> Void) {
+        if quick(["rosetta"]).trimmingCharacters(in: .whitespacesAndNewlines) == "sim" { then(); return }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Falta o Rosetta 2"
+        alert.informativeText = """
+        O Rosetta 2 é o tradutor da Apple que deixa programas feitos para Intel rodarem no chip Apple — \
+        e o Windows traduzido também passa por ele.
+
+        Ele faz parte do macOS e só a Apple pode distribuí-lo, então não vem dentro deste app. \
+        Mas o app instala agora, direto da Apple, com um clique (download pequeno, uma vez só).
+
+        Ao instalar, você aceita a licença de software da Apple para o Rosetta.
+        """
+        alert.addButton(withTitle: "Instalar o Rosetta")
+        alert.addButton(withTitle: "Agora não")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            log += "\nSem o Rosetta 2 os programas de Windows não abrem. Clique em Instalar quando quiser.\n"
+            return
+        }
+        run(["instalar-rosetta"]) { [weak self] in
+            guard let self else { return }
+            if self.quick(["rosetta"]).trimmingCharacters(in: .whitespacesAndNewlines) == "sim" { then() }
         }
     }
 
@@ -598,10 +631,10 @@ struct ContentView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Primeira vez neste Mac").font(.headline)
-                Text("Vai instalar a tradução que vem dentro do app — o motor do Wine e os tradutores gráficos (D3DMetal da Apple e DXMT) — e criar um \"Windows\" vazio para os seus programas. Funciona sem internet; com internet, o app procura versões mais novas. Depois é só arrastar um instalador .exe ou .msi, ou instalar a Steam se quiser jogar. Precisa de um Mac com chip Apple (M1 ou mais novo) e do Rosetta 2.")
+                Text("Vai instalar a tradução que vem dentro do app — o motor do Wine e os tradutores gráficos (D3DMetal da Apple e DXMT) — e criar um \"Windows\" vazio para os seus programas. Funciona sem internet; com internet, o app procura versões mais novas. Depois é só arrastar um instalador .exe ou .msi, ou instalar a Steam se quiser jogar. Precisa de um Mac com chip Apple (M1 ou mais novo). Se faltar o Rosetta 2 (tradutor da Apple), o app instala direto da Apple antes.")
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button("Instalar") { r.run(["setup"]) }
+                    Button("Instalar") { r.ensureRosetta { r.run(["setup"]) } }
                         .buttonStyle(.borderedProminent).disabled(r.busy)
                     if r.busy { ProgressView().controlSize(.small) }
                 }
