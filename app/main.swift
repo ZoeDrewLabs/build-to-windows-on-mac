@@ -35,7 +35,7 @@ enum Edition {
     static var name: String { isGaming ? "Build to Windows on Mac + Gaming" : "Build to Windows on Mac" }
     static var tagline: String {
         isGaming ? "Jogos de Windows no Mac · Steam pronta · o tradutor certo para cada jogo"
-                 : "Programas e jogos de Windows no Mac · sem máquina virtual"
+                 : "Programas de Windows para trabalho e empresas no Mac · sem máquina virtual"
     }
 }
 

@@ -1,4 +1,5 @@
-BUILD TO WINDOWS ON MAC + GAMING — jogos de Windows no Mac, com a Steam pronta
+BUILD TO WINDOWS ON MAC + GAMING — jogos de Windows no Mac, com a Steam pronta (versão 2.1)
+Edição para quem joga do Build to Windows on Mac (a edição original é focada em programas de trabalho e empresas).
 Gratuito. Sem máquina virtual: o Wine traduz o jogo de Windows direto para o macOS,
 e os tradutores gráficos (D3DMetal da Apple, DXMT, DXVK) traduzem o DirectX para o Metal.
 

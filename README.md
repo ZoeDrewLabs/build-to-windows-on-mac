@@ -6,10 +6,12 @@ Arraste um `.exe` ou `.msi` para o app e ele abre direto no macOS. Não tem um W
 
 ![Janela do Build to Windows on Mac](docs/screenshot.png)
 
-## Duas edições
+## Versão 2.1: duas edições do mesmo app
 
-- **Build to Windows on Mac** — para programas de Windows (e jogos, se você quiser instalar a Steam).
-- **Build to Windows on Mac + Gaming** — feita para jogar: no *Instalar* ela já instala a **Steam de Windows sozinha** (pelo instalador oficial, baixado da Valve na hora), mostra os **jogos em primeiro lugar** e escolhe o **tradutor gráfico certo para cada jogo** pelo motor dele (GameMaker → DXMT, Unity e Unreal → D3DMetal, DirectX 9 → DXVK). Na primeira vez que um jogo abre, uma tela de carregamento cobre o jogo enquanto o app testa o tradutor; se o jogo fechar ou der erro de DirectX, tenta o próximo (D3DMetal → DXMT → DXVK → WineD3D) e guarda o que funcionou. Se a Steam estiver aberta com outro tradutor, o app avisa e reabre a Steam com o certo. Dá para guardar os jogos num SSD externo.
+O mesmo projeto, a mesma versão, dois públicos:
+
+- **Build to Windows on Mac** — a edição original, focada em quem usa **programas corporativos e de empresa** no Windows (ERPs, sistemas internos, ferramentas de escritório). A Steam continua opcional.
+- **Build to Windows on Mac + Gaming** — a edição para o **público gamer**: no *Instalar* ela já instala a **Steam de Windows sozinha** (pelo instalador oficial, baixado da Valve na hora), mostra os **jogos em primeiro lugar** e escolhe o **tradutor gráfico certo para cada jogo** pelo motor dele (GameMaker → DXMT, Unity e Unreal → D3DMetal, DirectX 9 → DXVK). Na primeira vez que um jogo abre, uma tela de carregamento cobre o jogo enquanto o app testa o tradutor; se o jogo fechar ou der erro de DirectX, tenta o próximo (D3DMetal → DXMT → DXVK → WineD3D) e guarda o que funcionou. Se a Steam estiver aberta com outro tradutor, o app avisa e reabre a Steam com o certo. Dá para guardar os jogos num SSD externo.
 
 Os dois instaladores (`.dmg`) ficam na mesma página de Releases.
 

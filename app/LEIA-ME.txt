@@ -1,4 +1,5 @@
-BUILD TO WINDOWS ON MAC — programas e jogos de Windows no Mac
+BUILD TO WINDOWS ON MAC — programas de Windows no Mac, para trabalho e empresas (versão 2.1)
+Quer jogar? Use a edição "Build to Windows on Mac + Gaming" (mesma versão, mesma página de Releases).
 Gratuito. Sem máquina virtual: o Wine traduz o programa de Windows direto para o macOS,
 e o D3DMetal da Apple traduz os gráficos (DirectX → Metal).
 

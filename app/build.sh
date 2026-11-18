@@ -8,7 +8,7 @@ set -e
 SRC="${0:A:h}"
 ROOT="${SRC:h}"
 OUT="$ROOT/dist"
-VERSION="2.1.0"
+VERSION="2.1"
 EDITION="${EDITION:-geral}"
 if [[ "$EDITION" == todas ]]; then
   EDITION=geral "$0" && EDITION=gaming "$0"; exit $?
