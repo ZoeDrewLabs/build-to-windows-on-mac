@@ -63,7 +63,7 @@ seu .exe ──► Wine (traduz o Windows para o macOS) ──► macOS
 Precisa só das Command Line Tools da Apple (`xcode-select --install`):
 
 ```bash
-git clone https://github.com/SEU-USUARIO/build-to-windows-on-mac.git
+git clone https://github.com/ZoeDrewLabs/build-to-windows-on-mac.git
 cd build-to-windows-on-mac
 app/build.sh
 ```
