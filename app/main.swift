@@ -9,9 +9,17 @@ import ServiceManagement
 // MARK: - Modelo
 
 struct WinProgram: Identifiable, Hashable {
-    var id: String { name }
+    var id: String { prefix + "/" + name }
+    let prefix: String      // garrafa (WINEPREFIX) onde o programa está
     let name: String        // como aparece no Menu Iniciar do Windows
     let lnk: String         // atalho .lnk dentro da garrafa
+}
+
+/// Uma garrafa = um WINEPREFIX isolado (Prefixes/<id>).
+struct Bottle: Identifiable, Hashable {
+    let id: String          // nome da pasta
+    let display: String     // nome de exibição (.zog/info)
+    let programCount: Int
 }
 
 struct WinComponent: Identifiable, Hashable {
@@ -51,7 +59,13 @@ final class Runner: ObservableObject {
     }
     @Published var busy = false
     @Published var games: [Game] = []
-    @Published var isSetUp = false        // tradução instalada (motor + "Windows")
+    @Published var isSetUp = false        // tradução instalada (motor do Wine)
+    @Published var bottles: [Bottle] = []
+    @Published var installTarget = ""     // "" = garrafa nova automática para cada programa
+    @Published var componentsBottle: String? = nil   // garrafa aberta na folha de componentes
+    @Published var progressText = ""
+    @Published var progressValue = 0.0
+    var currentProcess: Process?
     @Published var hasSteam = false
     @Published var programs: [WinProgram] = []
     @Published var components: [WinComponent] = []
@@ -112,20 +126,34 @@ final class Runner: ObservableObject {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         folderAvailable = fm.fileExists(atPath: dataFolder, isDirectory: &isDir) && isDir.boolValue
-        // mesma regra do zog.sh: garrafa antiga "steam" ou a nova "windows"
-        let old = (dataFolder as NSString).appendingPathComponent("bottles/steam")
-        let bottle = fm.fileExists(atPath: old + "/drive_c")
-            ? old : (dataFolder as NSString).appendingPathComponent("bottles/windows")
         let engineOK = ((try? fm.contentsOfDirectory(atPath: (dataFolder as NSString)
             .appendingPathComponent("engine"))) ?? []).contains { e in
                 fm.isExecutableFile(atPath: "\(dataFolder)/engine/\(e)/bin/wine") }
-        isSetUp = engineOK && fm.fileExists(atPath: bottle + "/drive_c")
-        hasSteam = fm.fileExists(atPath: bottle + "/drive_c/Program Files (x86)/Steam/steam.exe")
-        programs = Runner.installedPrograms(in: bottle)
-        if isSetUp { loadComponents() }
+        isSetUp = engineOK
+        // Garrafas: Prefixes/<nome>/ (versões antigas: bottles/steam, migrada pelo zog.sh no próximo comando)
+        let prefixes = (dataFolder as NSString).appendingPathComponent("Prefixes")
+        var dirs: [(String, String)] = ((try? fm.contentsOfDirectory(atPath: prefixes)) ?? []).sorted()
+            .map { ($0, prefixes + "/" + $0) }
+            .filter { fm.fileExists(atPath: $0.1 + "/system.reg") }
+        let legacy = (dataFolder as NSString).appendingPathComponent("bottles/steam")
+        if !dirs.contains(where: { $0.0 == "steam" }), fm.fileExists(atPath: legacy + "/system.reg") {
+            dirs.append(("steam", legacy))
+        }
+        var allPrograms: [WinProgram] = []
+        bottles = dirs.map { (name, path) in
+            let progs = Runner.installedPrograms(in: path, prefix: name)
+            allPrograms += progs
+            let info = (try? String(contentsOfFile: path + "/.zog/info", encoding: .utf8)) ?? ""
+            let display = info.split(separator: "\n").first { $0.hasPrefix("nome=") }
+                .map { String($0.dropFirst(5)) } ?? name
+            return Bottle(id: name, display: display, programCount: progs.count)
+        }
+        programs = allPrograms
+        hasSteam = dirs.contains { fm.fileExists(atPath: $0.1 + "/drive_c/Program Files (x86)/Steam/steam.exe") }
         let profiles = (dataFolder as NSString).appendingPathComponent("profiles")
         let files = (try? fm.contentsOfDirectory(atPath: profiles)) ?? []
-        games = files.filter { $0.hasSuffix(".env") }.sorted().compactMap { file in
+        // Só perfis de jogos da Steam (têm STEAM_APPID). Os "app-*.env" são de programas (tradutor gráfico etc.)
+        games = files.filter { $0.hasSuffix(".env") && !$0.hasPrefix("app-") }.sorted().compactMap { file in
             let id = String(file.dropLast(4))
             let text = (try? String(contentsOfFile: (profiles as NSString).appendingPathComponent(file),
                                     encoding: .utf8)) ?? ""
@@ -139,13 +167,14 @@ final class Runner: ObservableObject {
                     .replacingOccurrences(of: "# Perfil de ", with: "")
                 title = s.components(separatedBy: " (").first ?? title
             }
+            guard !appID.isEmpty else { return nil }          // sem número da Steam não é jogo da Steam
             let saved = fm.fileExists(atPath: (profiles as NSString).appendingPathComponent("\(id).config.reg"))
             return Game(id: id, title: title, appID: appID, hasSavedConfig: saved)
         }
     }
 
     /// Programas instalados = atalhos do Menu Iniciar dentro da garrafa (sem desinstaladores etc.).
-    static func installedPrograms(in bottle: String) -> [WinProgram] {
+    static func installedPrograms(in bottle: String, prefix: String) -> [WinProgram] {
         let fm = FileManager.default
         var roots = [bottle + "/drive_c/ProgramData/Microsoft/Windows/Start Menu"]
         for u in (try? fm.contentsOfDirectory(atPath: bottle + "/drive_c/users")) ?? [] {
@@ -160,7 +189,20 @@ final class Runner: ObservableObject {
                 let low = name.lowercased()
                 if name == "Steam" || skip.contains(where: { low.contains($0) }) || seen.contains(name) { continue }
                 seen.insert(name)
-                out.append(WinProgram(name: name, lnk: root + "/" + rel))
+                out.append(WinProgram(prefix: prefix, name: name, lnk: root + "/" + rel))
+            }
+        }
+        // Programa portátil (um .exe que não se instala, como muitos jogos): sem atalho no Menu Iniciar.
+        // Usa a origem gravada na criação da garrafa (.zog/info), se ainda existir e não for instalador.
+        if out.isEmpty, prefix != "steam",
+           let info = try? String(contentsOfFile: bottle + "/.zog/info", encoding: .utf8) {
+            let field = { (k: String) in info.split(separator: "\n").first { $0.hasPrefix(k + "=") }
+                .map { String($0.dropFirst(k.count + 1)) } ?? "" }
+            let origin = field("origem"), display = field("nome")
+            let low = origin.lowercased()
+            if low.hasSuffix(".exe"), fm.fileExists(atPath: origin),
+               !low.contains("setup"), !low.contains("install") {
+                out.append(WinProgram(prefix: prefix, name: display.isEmpty ? prefix : display, lnk: origin))
             }
         }
         return out.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -185,11 +227,20 @@ final class Runner: ObservableObject {
         pipe.fileHandleForReading.readabilityHandler = { h in
             let data = h.availableData
             guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
-            Task { @MainActor in self.log += s }
+            Task { @MainActor in self.consume(s) }
         }
-        p.terminationHandler = { _ in
+        progressText = ""; progressValue = 0
+        currentProcess = p
+        p.terminationHandler = { proc in
             Task { @MainActor in
                 pipe.fileHandleForReading.readabilityHandler = nil
+                self.currentProcess = nil
+                self.progressText = ""
+                if proc.terminationReason == .uncaughtSignal || proc.terminationStatus == 143 {
+                    self.log += "(cancelado)\n"
+                } else if proc.terminationStatus != 0 {
+                    self.log += "(terminou com código \(proc.terminationStatus))\n"
+                }
                 self.busy = false
                 self.refresh()
                 then?()
@@ -199,6 +250,57 @@ final class Runner: ObservableObject {
             log += "Erro ao rodar: \(error.localizedDescription)\n"
             busy = false
         }
+    }
+
+    // Tradutores gráficos (DirectX → Metal) que dá para escolher por programa
+    static let renderers: [(String, String)] = [
+        ("d3dmetal", "D3DMetal (Apple) — padrão, o mais rápido"),
+        ("dxmt", "DXMT — DirectX 11 → Metal (bom para GameMaker)"),
+        ("dxvk", "DXVK — DirectX 9/10/11 → Vulkan → Metal"),
+        ("wined3d", "WineD3D — o do próprio Wine (mais compatível, mais lento)"),
+    ]
+    func openProgram(_ p: WinProgram) {
+        if p.lnk.lowercased().hasSuffix(".exe") {          // portátil: roda o .exe de origem na garrafa dele
+            run(["abrir", p.lnk, p.prefix], extraEnv: ["ZOG_FORCAR": "1"])
+        } else {
+            run(["abrir-programa", p.prefix, p.name])
+        }
+    }
+
+    func renderer(of prefix: String) -> String {
+        let f = (dataFolder as NSString).appendingPathComponent("profiles/app-\(prefix).env")
+        let text = (try? String(contentsOfFile: f, encoding: .utf8)) ?? ""
+        let line = text.split(separator: "\n").last { $0.hasPrefix("ZOG_RENDERER=") }
+        return line.map { String($0.dropFirst(13).prefix { $0 != " " && $0 != "#" }) } ?? "d3dmetal"
+    }
+
+    /// Separa as linhas de progresso ("PROGRESSO|etapa|total|texto") do resto do log.
+    func consume(_ chunk: String) {
+        for line in chunk.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("PROGRESSO|") {
+                let f = line.split(separator: "|", maxSplits: 3).map(String.init)
+                if f.count == 4, let i = Double(f[1]), let n = Double(f[2]) {
+                    progressValue = n > 0 ? min(i / n, 1) : 0
+                    progressText = f[3]
+                    log += "• \(f[3])\n"
+                }
+            } else if !line.isEmpty {
+                log += line + "\n"
+            }
+        }
+    }
+
+    /// Cancela o comando atual: o zog.sh recebe SIGTERM e encerra a garrafa em uso (sem órfãos).
+    func cancel() { currentProcess?.terminate() }
+
+    func removeBottle(_ b: Bottle) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Apagar a garrafa \"\(b.display)\"?"
+        alert.informativeText = "Apaga \(b.programCount == 1 ? "o programa instalado" : "os \(b.programCount) programas instalados") nela, com as configurações e arquivos salvos dentro dela. As outras garrafas não mudam. Não dá para desfazer."
+        alert.addButton(withTitle: "Apagar")
+        alert.addButton(withTitle: "Cancelar")
+        if alert.runModal() == .alertFirstButtonReturn { run(["remover-garrafa", b.id]) }
     }
 
     static let windowsExtensions: Set<String> = ["exe", "msi", "bat", "cmd"]
@@ -219,8 +321,8 @@ final class Runner: ObservableObject {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    func loadComponents() {
-        components = quick(["componentes"]).split(separator: "\n").compactMap { line in
+    func loadComponents(for bottle: String) {
+        components = quick(["componentes", bottle]).split(separator: "\n").compactMap { line in
             let f = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
             return f.count == 3 ? WinComponent(id: f[0], name: f[1], installed: f[2] == "sim") : nil
         }
@@ -276,7 +378,9 @@ final class Runner: ObservableObject {
             return
         }
         guard confirmWithCatalog(url) else { log += "\n\(url.lastPathComponent): cancelado.\n"; return }
-        run(["abrir", url.path], extraEnv: ["ZOG_FORCAR": "1"])
+        var env = ["ZOG_FORCAR": "1"]
+        if !installTarget.isEmpty { env["ZOG_PREFIXO"] = installTarget }
+        run(["abrir", url.path], extraEnv: env)
     }
 
     func pickWindowsFile() {
@@ -373,6 +477,38 @@ struct SupportView: View {
 
 // MARK: - Telas
 
+struct BottleRef: Identifiable { let id: String }
+
+/// Componentes do Windows de uma garrafa (Visual C++, .NET, fontes…).
+struct ComponentsSheet: View {
+    @EnvironmentObject var r: Runner
+    @Environment(\.dismiss) private var dismiss
+    let bottle: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Componentes da garrafa \"\(bottle)\"").font(.title3.bold())
+            Text("Vêm direto da Microsoft. O app já instala sozinho o que detecta no programa; aqui dá para instalar à mão.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            ForEach(r.components) { c in
+                HStack {
+                    Image(systemName: c.installed ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(c.installed ? .green : .secondary)
+                    Text(c.name)
+                    Spacer()
+                    if c.installed { Text("instalado").font(.caption).foregroundStyle(.secondary) }
+                    else {
+                        Button("Instalar") {
+                            r.run(["instalar-componente", bottle, c.id]) { r.loadComponents(for: bottle) }
+                        }.controlSize(.small).disabled(r.busy)
+                    }
+                }
+            }
+            HStack { Spacer(); Button("Fechar") { dismiss() }.keyboardShortcut(.defaultAction) }
+        }
+        .padding(22).frame(width: 460)
+    }
+}
+
 /// Área onde se solta um .exe/.msi para rodar.
 struct DropZone: View {
     @EnvironmentObject var r: Runner
@@ -416,12 +552,25 @@ struct ContentView: View {
             ScrollView {
                 if r.isSetUp { mainControls } else { setupPanel }
             }
+            if r.busy {
+                HStack {
+                    if r.progressText.isEmpty { ProgressView().controlSize(.small) }
+                    else { ProgressView(value: r.progressValue).frame(width: 140) }
+                    Text(r.progressText.isEmpty ? "Trabalhando…" : r.progressText).font(.callout).lineLimit(1)
+                    Spacer()
+                    Button("Cancelar") { r.cancel() }.controlSize(.small)
+                }
+            }
             logBox
         }
         .padding(20)
         .frame(minWidth: 640, minHeight: 700)
         .onAppear { r.refresh() }
         .sheet(isPresented: $r.showSupport) { SupportView().environmentObject(r) }
+        .sheet(item: Binding(get: { r.componentsBottle.map { BottleRef(id: $0) } },
+                             set: { r.componentsBottle = $0?.id })) { ref in
+            ComponentsSheet(bottle: ref.id).environmentObject(r)
+        }
     }
 
     var header: some View {
@@ -484,16 +633,36 @@ struct ContentView: View {
             GroupBox("Programas de Windows") {
                 VStack(alignment: .leading, spacing: 8) {
                     DropZone()
-                    if r.programs.isEmpty {
+                    HStack {
+                        Text("Instalar em:").font(.callout)
+                        Picker("", selection: $r.installTarget) {
+                            Text("Garrafa nova para cada programa (recomendado)").tag("")
+                            ForEach(r.bottles) { b in Text("Garrafa \"\(b.display)\"").tag(b.id) }
+                        }.labelsHidden().frame(maxWidth: 360)
+                        Spacer()
+                    }
+                    if r.programs.filter({ $0.prefix != "steam" }).isEmpty {
                         Text("Nenhum programa instalado ainda. Arraste o instalador (.exe ou .msi) acima.")
                             .font(.callout).foregroundStyle(.secondary)
                     } else {
-                        ForEach(r.programs) { prog in
+                        ForEach(r.programs.filter { $0.prefix != "steam" }) { prog in
                             HStack {
                                 Image(systemName: "app.dashed")
-                                Text(prog.name)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(prog.name)
+                                    Text("garrafa \(prog.prefix)").font(.caption2).foregroundStyle(.secondary)
+                                }
                                 Spacer()
-                                Button("Abrir") { r.run(["abrir-programa", prog.name]) }.controlSize(.small)
+                                Menu {
+                                    Text("Se o programa abrir com tela preta, erro de DirectX ou gráfico estranho, troque aqui:")
+                                    ForEach(Runner.renderers, id: \.0) { rid, label in
+                                        Button((r.renderer(of: prog.prefix) == rid ? "✓ " : "") + label) {
+                                            r.run(["tradutor", prog.prefix, rid])
+                                        }
+                                    }
+                                } label: { Image(systemName: "display") }
+                                .menuStyle(.borderlessButton).fixedSize().help("Tradutor gráfico deste programa")
+                                Button("Abrir") { r.openProgram(prog) }.controlSize(.small)
                             }
                             Divider()
                         }
@@ -501,19 +670,25 @@ struct ContentView: View {
                 }.disabled(r.busy).padding(4)
             }
 
-            GroupBox("Ferramentas profissionais") {
+            GroupBox("Garrafas (cada programa isolado)") {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Programas de empresa costumam precisar destes componentes do Windows. Eles vêm direto da Microsoft. Ao arrastar um instalador, o app também avisa se o programa tem versão para Mac ou se não funciona por aqui.")
+                    Text("Cada programa fica na própria garrafa — um Windows separado, com registro e DLLs só dele. Assim um programa de empresa nunca quebra outro. Os componentes (Visual C++, .NET, fontes) são instalados por garrafa, sozinhos quando o app detecta que o programa precisa.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    ForEach(r.components) { c in
+                    ForEach(r.bottles) { b in
                         HStack {
-                            Image(systemName: c.installed ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(c.installed ? .green : .secondary)
-                            Text(c.name)
+                            Image(systemName: b.id == "steam" ? "gamecontroller" : "shippingbox")
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(b.display)
+                                Text("\(b.id) · \(b.programCount) programa\(b.programCount == 1 ? "" : "s")")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
                             Spacer()
-                            if c.installed { Text("instalado").font(.caption).foregroundStyle(.secondary) }
-                            else { Button("Instalar") { r.run(["instalar-componente", c.id]) }.controlSize(.small) }
+                            Button("Componentes…") { r.loadComponents(for: b.id); r.componentsBottle = b.id }
+                                .controlSize(.small)
+                            Button(role: .destructive) { r.removeBottle(b) } label: { Image(systemName: "trash") }
+                                .controlSize(.small).help("Apagar esta garrafa")
                         }
+                        Divider()
                     }
                 }.disabled(r.busy).padding(4)
             }
@@ -625,9 +800,11 @@ struct MenuBarContent: View {
         Divider()
         if r.isSetUp {
             Button("Abrir programa de Windows…") { NSApp.activate(ignoringOtherApps: true); r.pickWindowsFile() }
-            if !r.programs.isEmpty {
+            if !r.programs.filter({ $0.prefix != "steam" }).isEmpty {
                 Menu("Programas") {
-                    ForEach(r.programs) { p in Button(p.name) { r.run(["abrir-programa", p.name]) } }
+                    ForEach(r.programs.filter { $0.prefix != "steam" }) { p in
+                        Button(p.name) { r.openProgram(p) }
+                    }
                 }
             }
             if r.hasSteam { Button("Abrir Steam") { r.run(["steam"]) } }

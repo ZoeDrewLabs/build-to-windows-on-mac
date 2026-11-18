@@ -6,17 +6,25 @@ SRC="${0:A:h}"
 ROOT="${SRC:h}"
 OUT="$ROOT/dist"
 APP="$OUT/Build to Windows on Mac.app"
-VERSION="1.1"
+VERSION="2.0"
 
-rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/scripts" "$APP/Contents/Resources/profiles"
+R="$APP/Contents/Resources"
+rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$R/scripts/lib" "$R/profiles" "$R/tools" "$R/runtime"
 
-echo "compilando..."
-swiftc -parse-as-library -O -target arm64-apple-macos14 "$SRC/main.swift" -o "$APP/Contents/MacOS/BuildToWindowsOnMac"
+echo "compilando o app e o PEInspector..."
+swiftc -parse-as-library -O -target arm64-apple-macos14 "$SRC/main.swift" "$SRC/PEInspector.swift" \
+  -o "$APP/Contents/MacOS/BuildToWindowsOnMac"
+swiftc -parse-as-library -O -target arm64-apple-macos14 "$SRC/PEInspector.swift" "$SRC/peinspect-cli.swift" \
+  -o "$R/tools/peinspect"
+cp "$R/tools/peinspect" "$ROOT/tools/peinspect"        # versão de desenvolvimento, usada pelo zog.sh do projeto
 
-cp "$ROOT/scripts/zog.sh" "$APP/Contents/Resources/scripts/"
-chmod +x "$APP/Contents/Resources/scripts/zog.sh"
+# lançador + módulos (PrefixManager, Provisioner…) e ferramentas
+cp "$ROOT/scripts/zog.sh" "$R/scripts/"; cp "$ROOT"/scripts/lib/*.sh "$R/scripts/lib/"
+cp "$ROOT/tools/winetricks" "$ROOT/tools/cabextract" "$R/tools/"
+chmod +x "$R/scripts/zog.sh" "$R/tools/"*
 # perfis que vão junto (só o .env: as configurações salvas são de cada Mac)
-cp "$ROOT"/profiles/*.env "$ROOT"/profiles/catalogo.tsv "$APP/Contents/Resources/profiles/"
+cp "$ROOT"/profiles/catalogo.tsv "$R/profiles/"
+for f in "$ROOT"/profiles/*.env(N); do [[ "${f:t}" == app-* ]] || cp "$f" "$R/profiles/"; done   # perfis de jogos; os app-* são de cada Mac
 
 # Pacote embutido (instala sem internet): motor do Wine e tradutores gráficos. A Steam é opcional (baixada no app).
 # Gerado uma vez a partir da instalação testada em engine/ e guardado em app/payload-cache.
@@ -44,8 +52,31 @@ if [[ ! -f "$PC/frameworks.tar.xz" ]]; then
   echo "empacotando D3DMetal, DXMT e bibliotecas (demora alguns minutos)..."
   tar -C "$ROOT/engine" -cJf "$PC/frameworks.tar.xz.part" frameworks && mv "$PC/frameworks.tar.xz.part" "$PC/frameworks.tar.xz"
 fi
-mkdir -p "$APP/Contents/Resources/payload"
-cp "$PC/engine.tar.xz" "$PC/frameworks.tar.xz" "$APP/Contents/Resources/payload/"
+# Contents/Resources/runtime: o motor vai compactado e é extraído na 1ª abertura. Extraído, ele fica sem a
+# "marca de baixado da internet" do macOS — executar centenas de binários do Wine marcados e sem assinatura
+# da Apple faria o Gatekeeper bloquear. (Com Developer ID + notarização dá para rodar direto daqui.)
+cp "$PC/engine.tar.xz" "$PC/frameworks.tar.xz" "$R/runtime/"
+
+# Componentes da Microsoft embutidos (instaladores oficiais, sem modificação — redistribuíveis):
+# Visual C++ 2015–2022, .NET 4.0 + 4.8 e as fontes básicas (corefonts). Instalam sem internet.
+MS="$R/runtime/microsoft"; mkdir -p "$MS/downloads" "$MS/winetricks/corefonts"
+MC="$HOME/Library/Caches/BuildToWindowsOnMac"
+typeset -A MSURL=(
+  vc_redist.x64.exe "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+  vc_redist.x86.exe "https://aka.ms/vs/17/release/vc_redist.x86.exe"
+  dotNetFx40_Full_x86_x64.exe "https://download.microsoft.com/download/9/5/A/95A9616B-7A37-4AF6-BC36-D6EA96C8DAAE/dotNetFx40_Full_x86_x64.exe"
+  ndp48-x86-x64-allos-enu.exe "https://go.microsoft.com/fwlink/?linkid=2088631"
+)
+for f u in ${(kv)MSURL}; do
+  [[ -s "$MC/downloads/$f" ]] || { mkdir -p "$MC/downloads"; curl -fL -o "$MC/downloads/$f" "$u"; }
+  cp "$MC/downloads/$f" "$MS/downloads/"
+done
+if [[ -d "$MC/winetricks/corefonts" ]] && ls "$MC"/winetricks/corefonts/*.exe >/dev/null 2>&1; then
+  cp "$MC"/winetricks/corefonts/*.exe "$MS/winetricks/corefonts/"
+else
+  echo "aviso: fontes (corefonts) ainda não estão no cache; instale uma vez com: zog.sh instalar-componente <garrafa> corefonts"
+fi
+echo "componentes Microsoft embutidos: $(du -sh "$MS" | cut -f1)"
 
 # ícone
 if [[ -f "$SRC/AppIcon.icns" ]]; then cp "$SRC/AppIcon.icns" "$APP/Contents/Resources/"; fi

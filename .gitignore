@@ -14,3 +14,8 @@ dist/
 profiles/*.config.reg
 
 .DS_Store
+
+# Garrafas (um Windows por programa) e ferramenta compilada
+Prefixes/
+tools/peinspect
+profiles/app-*.env

@@ -6,7 +6,7 @@ PRECISA DE
 - Mac com chip Apple (M1, M2, M3, M4 ou mais novo)
 - macOS 14 Sonoma ou mais novo
 - Rosetta 2 (o app avisa se faltar)
-- ~1 GB livre para a tradução + o espaço dos seus programas
+- ~2 GB livres para a tradução + ~300 MB por programa (~1,2 GB se ele usar .NET)
 
 COMO INSTALAR
 1. Arraste "Build to Windows on Mac" para a pasta "Aplicativos" (ao lado).
@@ -18,6 +18,11 @@ COMO INSTALAR
    Dá para escolher outra pasta antes, por exemplo um SSD externo.
 
 DEPOIS
+- Cada programa fica numa "garrafa" própria (um Windows separado), então um não atrapalha o outro.
+- Antes de rodar, o app lê o .exe e instala sozinho o que ele precisa (Visual C++, .NET, fontes).
+  Esses componentes da Microsoft já vêm dentro do app: não precisa de internet.
+- Se um programa abrir com tela preta ou erro de DirectX, clique no ícone de monitor ao lado dele
+  e escolha outro tradutor gráfico (DXMT, DXVK ou WineD3D).
 - Para instalar ou rodar um programa de Windows: arraste o .exe ou .msi para a janela do app,
   ou clique com o botão direito no arquivo → Abrir com → Build to Windows on Mac.
 - Os programas instalados aparecem na janela e no menu do app (ícone na barra de cima).

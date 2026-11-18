@@ -1,0 +1,93 @@
+#!/bin/zsh
+# cabextract compatível, para o winetricks no macOS — sem compilar nada.
+# Repassa o trabalho para o bsdtar (libarchive) que já vem em todo Mac e lê arquivos .cab,
+# inclusive os .exe "autoextraíveis" da Microsoft.
+#
+# Opções suportadas (as que o winetricks usa):
+#   -q / --quiet            silencioso
+#   -v / --version          versão
+#   -d DIR / --directory=DIR    pasta de destino
+#   -F PADRÃO / --filter=PADRÃO extrai só o que bate com o padrão (sem diferenciar maiúsculas)
+#   -L / --lowercase        nomes em minúsculas
+#   -l / --list             lista o conteúdo
+set -u
+dir="." filters=() lower=0 list=0 quiet=0 files=()
+while (( $# )); do
+  case "$1" in
+    -q|--quiet) quiet=1 ;;
+    -v|--version) echo "cabextract version 1.11 (shim bsdtar: $(tar --version | head -1))"; exit 0 ;;
+    -d) shift; dir="$1" ;;
+    --directory=*) dir="${1#*=}" ;;
+    -F) shift; filters+=("$1") ;;
+    --filter=*) filters+=("${1#*=}") ;;
+    -L|--lowercase) lower=1 ;;
+    -l|--list) list=1 ;;
+    -s|--single|-f|--fix|-p|--pipe) ;;          # opções sem efeito aqui
+    -*) ;;                                       # ignora opções desconhecidas
+    *) files+=("$1") ;;
+  esac
+  shift
+done
+(( ${#files} )) || { echo "cabextract: nenhum arquivo" >&2; exit 1; }
+rc=0
+tmpcabs=()
+trap 'rm -f $tmpcabs' EXIT
+
+# O cabextract original acha cabinets EMBUTIDOS em qualquer arquivo (ex.: dentro de um .msi).
+# Se o tar não reconhecer o arquivo, procura a assinatura "MSCF" e corta a partir dali.
+embedded_cabs() {   # imprime caminhos de .cab temporários extraídos de $1
+  local off t
+  for off in ${(f)"$(LC_ALL=C grep -obUa 'MSCF' "$1" 2>/dev/null | cut -d: -f1)"}; do
+    [[ "$off" == <-> ]] || continue
+    t=$(mktemp -t zogcab); tail -c "+$(( off + 1 ))" "$1" > "$t"
+    if tar -tf "$t" >/dev/null 2>&1; then tmpcabs+=("$t"); print -r -- "$t"; else rm -f "$t"; fi
+  done
+}
+expanded=()
+for f in $files; do
+  if tar -tf "$f" >/dev/null 2>&1; then expanded+=("$f")
+  else
+    found=("${(@f)$(embedded_cabs "$f")}")
+    [[ -n "${found[1]:-}" ]] && expanded+=($found) || { echo "cabextract: $f não contém cabinet" >&2; rc=1; }
+  fi
+done
+files=($expanded)
+
+ok=0
+for f in $files; do
+  if (( list )); then tar -tf "$f" && ok=1; continue; fi
+  mkdir -p "$dir"
+  if (( ${#filters} )); then
+    # o filtro do cabextract não diferencia maiúsculas; compara com a lista real do arquivo
+    members=("${(@f)$(tar -tf "$f" 2>/dev/null)}")
+    want=()
+    for m in $members; do
+      for p in $filters; do
+        [[ "${(L)m:t}" == ${(L)~p} || "${(L)m}" == ${(L)~p} ]] && { want+=("$m"); break; }
+      done
+    done
+    (( ${#want} )) || continue
+    tar -xf "$f" -C "$dir" -- "${want[@]}" 2>/dev/null
+    for m in $want; do [[ -e "$dir/$m" ]] && ok=1; done
+  else
+    # o tar pode reclamar de dados depois do fim do cabinet; vale o que foi extraído de fato
+    err=$(tar -xf "$f" -C "$dir" 2>&1 >/dev/null)
+    if [[ "$err" == *"Unsupported CAB compression"* ]]; then
+      # Compressão que o libarchive não abre (ex.: Quantum): o tar deixaria arquivos CORROMPIDOS.
+      for m in "${(@f)$(tar -tf "$f" 2>/dev/null)}"; do [[ -n "$m" ]] && rm -f "$dir/$m"; done
+      echo "cabextract: $f usa compressão não suportada (${${err#*compression : }%%:*}); nada extraído" >&2
+      continue
+    fi
+    for m in "${(@f)$(tar -tf "$f" 2>/dev/null)}"; do [[ -n "$m" && -e "$dir/$m" ]] && { ok=1; break; }; done
+  fi
+  (( quiet )) || echo "extraído: $f → $dir"
+done
+if (( lower )); then
+  # renomeia de baixo para cima para minúsculas
+  find "$dir" -depth -mindepth 1 | while read -r p; do
+    l="${p:h}/${(L)p:t}"; [[ "$p" != "$l" ]] && mv -f "$p" "$l" 2>/dev/null
+  done
+fi
+# sucesso se ao menos um cabinet foi extraído/listado (assinaturas "MSCF" falsas são ignoradas)
+(( ok )) && exit 0
+exit 1

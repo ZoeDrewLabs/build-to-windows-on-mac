@@ -8,13 +8,20 @@ Arraste um `.exe` ou `.msi` para o app e ele abre direto no macOS. Não tem um W
 
 ## O que ele faz
 
+**Novo na 2.0:** cada programa roda numa **garrafa isolada** (um Windows só dele), o app **lê o `.exe` antes de rodar** para descobrir do que ele precisa, e os **componentes da Microsoft já vêm dentro do app** — Visual C++, .NET Framework 4.8 e as fontes do Windows instalam sem internet.
+
 - **Arrastar e soltar:** solte um instalador `.exe`/`.msi` na janela, ou clique com o botão direito no arquivo → *Abrir com → Build to Windows on Mac*.
 - **Lista de programas:** tudo o que você instala aparece na janela e no menu da barra de cima, com um botão *Abrir*.
 - **Jogos pela Steam (opcional):** instala a Steam de Windows com um clique; cada jogo ganha um perfil com as configurações e correções dele.
 - **Escala certa em qualquer tela:** antes de abrir cada programa, o app confere a tela (Retina interna, monitor externo, resolução) e ajusta a escala do Windows — nada de janela gigante nem letra minúscula.
 - **Fica em segundo plano:** fechou a janela, o app continua na barra de menus. Dá para abrir junto com o Mac.
 - **Instala sem internet:** a tradução já vem dentro do instalador. Com internet, o app avisa quando sai uma versão nova aqui no GitHub — o motor só muda quando uma versão testada é publicada.
-- **Leve:** o instalador tem ~260 MB; a tradução instalada ocupa ~1 GB.
+- **Uma garrafa por programa:** registro, DLLs e configurações de um programa nunca interferem em outro. Apagar uma garrafa remove só aquele programa.
+- **Detecção automática de dependências:** antes de rodar, o app lê o cabeçalho do `.exe` (arquitetura, DLLs importadas, se é .NET, se é Electron/WebView2/GameMaker) e instala sozinho o que falta. Depois de um instalador terminar, analisa também o programa instalado.
+- **Componentes da Microsoft embutidos:** Visual C++ 2015–2022, .NET Framework 4.8 e fontes básicas (Arial, Times, Verdana…), nos instaladores oficiais. Visual C++ 2010/2013 e WebView2 (experimental) pelo winetricks.
+- **Tradutor gráfico por programa:** D3DMetal (padrão), DXMT, DXVK ou o do Wine — um clique no ícone de monitor ao lado do programa. Jogos GameMaker já usam o DXMT automaticamente.
+- **Progresso e cancelamento:** barra de progresso na instalação de componentes; cancelar encerra os processos daquela garrafa, sem deixar nada rodando.
+- **Tamanho:** o instalador tem ~470 MB (com os componentes da Microsoft). Cada garrafa ocupa ~300 MB, ou ~1,2 GB com .NET.
 
 ## Requisitos
 
@@ -37,6 +44,8 @@ Arraste um `.exe` ou `.msi` para o app e ele abre direto no macOS. Não tem um W
 | Steam (cliente de Windows) | ✅ abre, login e downloads funcionando |
 | PEAK (Unity 6, DirectX 12) | ✅ 30–40 FPS num MacBook Air M4 com *Render Scale* em Medium |
 | Bloco de Notas do Windows | ✅ nítido e na escala certa |
+| Programa .NET Framework 4.8 (C#) | ✅ detectado sozinho pelo cabeçalho; .NET instalado e programa rodando |
+| Power Bomberman 0.7.8c (GameMaker, DirectX 11) | ✅ com DXMT (com D3DMetal dá erro de DirectX — o app já escolhe o DXMT) |
 
 Testou outro programa? Abra uma [issue](../../issues) contando se funcionou — isso ajuda todo mundo.
 
@@ -56,7 +65,11 @@ seu .exe ──► Wine (traduz o Windows para o macOS) ──► macOS
 
 - **Motor:** Wine 10 da [Sikarugir](https://github.com/Sikarugir-App) (`WS12WineSikarugir10.0_6`), rodando pelo Rosetta 2.
 - **Tradutores gráficos:** D3DMetal (Apple) por padrão; DXMT e o wined3d do Wine como alternativas por programa.
-- **App:** SwiftUI ([`app/main.swift`](app/main.swift)); toda a lógica fica no lançador [`scripts/zog.sh`](scripts/zog.sh), que também funciona pelo Terminal (`zog.sh` sem argumentos mostra os comandos).
+- **Garrafas isoladas:** [`scripts/lib/prefix.sh`](scripts/lib/prefix.sh) — `Prefixes/<programa>/`, criadas em silêncio com `wineboot --init`, `WINEPREFIX` sempre explícito.
+- **Leitor de `.exe`:** [`app/PEInspector.swift`](app/PEInspector.swift) — lê o cabeçalho PE (COFF, Optional Header, tabelas de importação e de importação tardia, cabeçalho CLR do .NET) sem executar nada; também vira a ferramenta `peinspect`.
+- **Pré-requisitos:** [`scripts/lib/provision.sh`](scripts/lib/provision.sh) — fila com progresso, cache compartilhado em `~/Library/Caches/BuildToWindowsOnMac`, winetricks embutido.
+- **Processos:** [`scripts/lib/process.sh`](scripts/lib/process.sh) — tempo limite em cada etapa e `wineserver -k` se travar.
+- **App:** SwiftUI ([`app/main.swift`](app/main.swift)); a lógica fica no lançador [`scripts/zog.sh`](scripts/zog.sh), que também funciona pelo Terminal (`zog.sh` sem argumentos mostra os comandos).
 
 ### Compilar você mesmo
 
@@ -88,7 +101,9 @@ Este projeto junta e automatiza o trabalho de outras pessoas, e cada parte mant�
 - **[Wine](https://www.winehq.org)** — LGPL 2.1. Código-fonte em [gitlab.winehq.org/wine/wine](https://gitlab.winehq.org/wine/wine).
 - **[Sikarugir](https://github.com/Sikarugir-App)** — builds do Wine para macOS e o pacote de tradutores (veja as licenças no repositório deles).
 - **D3DMetal**, do Game Porting Toolkit da **Apple** — distribuído sob a licença da Apple que acompanha o pacote (`License.rtf`).
-- **[DXMT](https://github.com/3Shain/dxmt)** e **[MoltenVK](https://github.com/KhronosGroup/MoltenVK)**.
+- **[DXMT](https://github.com/3Shain/dxmt)**, **[DXVK](https://github.com/doitsujin/dxvk)** e **[MoltenVK](https://github.com/KhronosGroup/MoltenVK)**.
+- **[winetricks](https://github.com/Winetricks/winetricks)** — LGPL 2.1, embutido sem modificação em `tools/winetricks`. Ele usa o `tools/cabextract` deste projeto, um adaptador que repassa o trabalho para o `tar` (libarchive) do macOS — não é o cabextract original.
+- **Componentes da Microsoft** (Visual C++ Redistributable, .NET Framework, fontes básicas) — instaladores oficiais, redistribuídos sem modificação e de graça, sob as licenças da Microsoft que acompanham cada um.
 
 O Build to Windows on Mac não é afiliado à Apple, à Valve, à Microsoft nem à CodeWeavers. Windows é marca da Microsoft; Steam é marca da Valve.
 
