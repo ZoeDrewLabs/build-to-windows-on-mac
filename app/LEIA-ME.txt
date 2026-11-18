@@ -23,7 +23,7 @@ DEPOIS
 - Os programas instalados aparecem na janela e no menu do app (ícone na barra de cima).
 - Jogos: clique em "Instalar Steam" (opcional) e entre na sua conta.
 - O app confere a tela (Retina, monitor externo) antes de abrir cada programa e ajusta a escala.
-- Com internet, o app avisa quando houver versão nova da tradução; dá para voltar se algo quebrar.
+- Com internet, o app avisa quando sair uma versão nova dele no GitHub (testada antes de publicar).
 
 O QUE NÃO FUNCIONA BEM
 - Jogos com anti-cheat de kernel (Valorant, Fortnite e outros).

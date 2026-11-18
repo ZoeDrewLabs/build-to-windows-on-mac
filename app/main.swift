@@ -69,28 +69,30 @@ final class Runner: ObservableObject {
         checkUpdates()
     }
 
-    // MARK: atualizações (motor do Wine e tradutores gráficos)
+    // MARK: versão nova do app
+    // O motor do Wine NUNCA é trocado pelo app: só a autora testa e publica versões novas no GitHub.
+    // Aqui o app só avisa que existe um Release mais novo e abre a página para baixar.
+    static let releasesAPI = "https://api.github.com/repos/ZoeDrewLabs/build-to-windows-on-mac/releases/latest"
     @Published var updateInfo = ""        // texto do aviso; vazio = nada novo
+    @Published var updateURL: URL?
 
-    /// Pergunta ao zog.sh se há versão nova (só lê, não instala). Silencioso sem internet.
     func checkUpdates() {
-        guard isSetUp else { return }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = [script, "atualizacoes"]
-        var env = ProcessInfo.processInfo.environment
-        env["ZOG_HOME"] = dataFolder
-        p.environment = env
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.terminationHandler = { proc in
-            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard let url = URL(string: Runner.releasesAPI) else { return }
+        var req = URLRequest(url: url, timeoutInterval: 8)
+        req.setValue("BuildToWindowsOnMac", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tag = json["tag_name"] as? String,
+                  let page = (json["html_url"] as? String).flatMap(URL.init(string:)) else { return }
+            let latest = tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+            let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+            guard latest.compare(current, options: .numeric) == .orderedDescending else { return }
             Task { @MainActor in
-                self.updateInfo = proc.terminationStatus == 10
-                    ? out.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                self.updateInfo = "Versão nova do Build to Windows on Mac: \(latest) (você tem a \(current))."
+                self.updateURL = page
             }
-        }
-        try? p.run()
+        }.resume()
     }
 
     /// O zog.sh do Terminal lê a pasta de dados deste arquivo.
@@ -393,12 +395,12 @@ struct ContentView: View {
 
     var mainControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if !r.updateInfo.isEmpty {
+            if !r.updateInfo.isEmpty && r.isSetUp {
                 HStack {
                     Image(systemName: "arrow.down.circle.fill").foregroundStyle(.blue)
                     Text(r.updateInfo).font(.callout).fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    Button("Atualizar") { r.run(["atualizar"]) { r.checkUpdates() } }
+                    Button("Baixar") { if let u = r.updateURL { NSWorkspace.shared.open(u) } }
                         .buttonStyle(.borderedProminent).controlSize(.small)
                     Button("Agora não") { r.updateInfo = "" }.controlSize(.small)
                 }

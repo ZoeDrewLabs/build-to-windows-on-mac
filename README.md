@@ -13,7 +13,7 @@ Arraste um `.exe` ou `.msi` para o app e ele abre direto no macOS. Não tem um W
 - **Jogos pela Steam (opcional):** instala a Steam de Windows com um clique; cada jogo ganha um perfil com as configurações e correções dele.
 - **Escala certa em qualquer tela:** antes de abrir cada programa, o app confere a tela (Retina interna, monitor externo, resolução) e ajusta a escala do Windows — nada de janela gigante nem letra minúscula.
 - **Fica em segundo plano:** fechou a janela, o app continua na barra de menus. Dá para abrir junto com o Mac.
-- **Instala sem internet:** a tradução já vem dentro do instalador. Com internet, o app avisa quando há versão nova — e dá para voltar se algo quebrar.
+- **Instala sem internet:** a tradução já vem dentro do instalador. Com internet, o app avisa quando sai uma versão nova aqui no GitHub — o motor só muda quando uma versão testada é publicada.
 - **Leve:** o instalador tem ~260 MB; a tradução instalada ocupa ~1 GB.
 
 ## Requisitos
